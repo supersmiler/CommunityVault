@@ -305,7 +305,7 @@ public class VaultStorage {
     // Save the vault contents to a file (vault.yml)
     public static void saveVaultToFile() {
         if (vaultFile == null) {
-            vaultFile = new File("plugins/communityvault/vault.yml");
+            vaultFile = new File("plugins/CommunityVault/vault.yml");
         }
 
         vaultConfig = YamlConfiguration.loadConfiguration(vaultFile);
@@ -327,7 +327,7 @@ public class VaultStorage {
 
     // Load the vault contents from a file (vault.yml)
     public static void loadVaultFromFile() {
-        vaultFile = new File("plugins/communityvault/vault.yml");
+        vaultFile = new File("plugins/CommunityVault/vault.yml");
 
         // Create the parent directories if they do not exist
         if (!vaultFile.getParentFile().exists()) {

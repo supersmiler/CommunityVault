@@ -45,7 +45,7 @@ public class ChestInteractListener implements Listener {
 
     public static void saveChestsToFile() {
         if (chestFile == null) {
-            chestFile = new File("plugins/communityvault/chests.yml");
+            chestFile = new File("plugins/CommunityVault/chests.yml");
         }
 
         chestConfig = YamlConfiguration.loadConfiguration(chestFile);
@@ -83,7 +83,7 @@ public class ChestInteractListener implements Listener {
 
 
     public static void loadChestsFromFile() {
-        chestFile = new File("plugins/communityvault/chests.yml");
+        chestFile = new File("plugins/CommunityVault/chests.yml");
 
         if (!chestFile.getParentFile().exists()) {
             chestFile.getParentFile().mkdirs();  // Create the directory if it doesn't exist

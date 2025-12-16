@@ -19,7 +19,7 @@ public class CategoryConfig {
     }
 
     private void createConfigFile() {
-        configFile = new File("plugins/communityvault/categories.yml");
+        configFile = new File("plugins/CommunityVault/categories.yml");
         if (!configFile.exists()) {
             configFile.getParentFile().mkdirs(); // Create directories if they don't exist
 
