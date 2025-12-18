@@ -311,8 +311,7 @@ public class VaultStorage {
         vaultConfig = YamlConfiguration.loadConfiguration(vaultFile);
         if(vaultStorage.size() <= 0)
         {
-            System.out.println("ERROR!!!! VAULTSTORAGE TRIED TO SAVE AN EMPTY VAULT");
-
+            //System.out.println("ERROR!!!! VAULTSTORAGE TRIED TO SAVE AN EMPTY VAULT");
             return;
         }
         // Save the list of ItemStacks to the config file
@@ -358,12 +357,16 @@ public class VaultStorage {
         vaultStorage.sort(Comparator.comparing(itemStack -> itemStack.getType().name()));
     }
 
-    public static boolean removeExactItemFromVault(Material material, int amount) {
+    public static boolean removeExactItemFromVault(ItemStack targetStack) {
+        if (targetStack == null) {
+            return false;
+        }
+
         for (int i = 0; i < vaultStorage.size(); i++) {
             ItemStack item = vaultStorage.get(i);
 
-            // Check if the item matches both the material and the amount
-            if (item.getType() == material && item.getAmount() == amount) {
+            // Match on full item similarity and amount to avoid removing the wrong shulker box
+            if (item != null && item.isSimilar(targetStack) && item.getAmount() == targetStack.getAmount()) {
                 // Remove the exact stack
                 vaultStorage.remove(i);
                 return true; // Return true indicating the item was found and removed

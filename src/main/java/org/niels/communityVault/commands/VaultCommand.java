@@ -178,7 +178,7 @@ public class VaultCommand implements CommandExecutor {
 
                     if (currentAmountInVault >= amountToWithdraw) {
                         // Ensure to update the vault storage before allowing the item to be taken out
-                        if(!VaultStorage.removeExactItemFromVault(material, amountToWithdraw))
+                        if(!VaultStorage.removeExactItemFromVault(clickedItem))
                         {
                             //Cancel if stack cannot be found
                             event.setCancelled(true);
@@ -709,7 +709,7 @@ public class VaultCommand implements CommandExecutor {
 
                     if (currentAmountInVault >= amountToWithdraw) {
                         // Ensure to update the vault storage before allowing the item to be taken out
-                        if(!VaultStorage.removeExactItemFromVault(material, amountToWithdraw))
+                        if(!VaultStorage.removeExactItemFromVault(clickedItem))
                         {
                             //Cancel if stack cannot be found
                             event.setCancelled(true);
