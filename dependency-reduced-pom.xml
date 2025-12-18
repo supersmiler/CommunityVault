@@ -4,7 +4,7 @@
   <groupId>org.niels</groupId>
   <artifactId>communityvault</artifactId>
   <name>communityvault</name>
-  <version>1.1</version>
+  <version>1.2</version>
   <build>
     <defaultGoal>clean package</defaultGoal>
     <resources>
@@ -58,6 +58,13 @@
           </execution>
         </executions>
       </plugin>
+      <plugin>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <useModulePath>false</useModulePath>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
   <repositories>
@@ -69,6 +76,10 @@
       <id>sonatype</id>
       <url>https://oss.sonatype.org/content/groups/public/</url>
     </repository>
+    <repository>
+      <id>jitpack.io</id>
+      <url>https://jitpack.io</url>
+    </repository>
   </repositories>
   <dependencies>
     <dependency>
@@ -76,6 +87,54 @@
       <artifactId>paper-api</artifactId>
       <version>1.21.1-R0.1-SNAPSHOT</version>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.10.2</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>junit-jupiter-api</artifactId>
+          <groupId>org.junit.jupiter</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>junit-jupiter-params</artifactId>
+          <groupId>org.junit.jupiter</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>junit-jupiter-engine</artifactId>
+          <groupId>org.junit.jupiter</groupId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>org.mockbukkit.mockbukkit</groupId>
+      <artifactId>mockbukkit-v1.21</artifactId>
+      <version>4.12.0</version>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <artifactId>adventure-platform-bungeecord</artifactId>
+          <groupId>net.kyori</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>byte-buddy</artifactId>
+          <groupId>net.bytebuddy</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>hamcrest</artifactId>
+          <groupId>org.hamcrest</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>maven-resolver-connector-basic</artifactId>
+          <groupId>org.apache.maven.resolver</groupId>
+        </exclusion>
+        <exclusion>
+          <artifactId>maven-resolver-transport-http</artifactId>
+          <groupId>org.apache.maven.resolver</groupId>
+        </exclusion>
+      </exclusions>
     </dependency>
   </dependencies>
   <properties>

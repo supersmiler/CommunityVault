@@ -13,12 +13,15 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.plugin.Plugin;
+import org.niels.communityVault.CommunityVault;
+import org.niels.communityVault.utils.BackupManager;
 import org.niels.communityVault.utils.CategoryConfig;
 import org.niels.communityVault.utils.VaultStorage;
 
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.Date;
 
 import static org.niels.communityVault.utils.MaterialUtils.*;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -46,8 +49,39 @@ public class VaultCommand implements CommandExecutor {
 
         Player player = (Player) sender;
 
-        if (label.equalsIgnoreCase("searchvault")) {
+        if (label.equalsIgnoreCase("searchvault") || label.equalsIgnoreCase("sv")) {
             searchVault(player, args);
+            return true;
+        }
+        if (label.equalsIgnoreCase("cvaultcompact")) {
+            if (!player.isOp() && !player.hasPermission("communityvault.compact")) {
+                player.sendMessage(ChatColor.RED + "You do not have permission to compact the vault.");
+                return true;
+            }
+            synchronized (VaultStorage.class) {
+                VaultStorage.compactVault();
+                VaultStorage.saveVaultToFile();
+            }
+            player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Vault compacted and saved.");
+            return true;
+        }
+        if (label.equalsIgnoreCase("cvaultstatus")) {
+            if (!player.isOp() && !player.hasPermission("communityvault.status")) {
+                player.sendMessage(ChatColor.RED + "You do not have permission to view status.");
+                return true;
+            }
+            int totalStacks = VaultStorage.getVaultItems().size();
+            int totalItems = VaultStorage.getTotalItemCount();
+            int categories = VaultStorage.getCategoryKeys().size();
+            String backupInfo = "never";
+            if (BackupManager.getLastBackupTime() != null) {
+                backupInfo = Date.from(BackupManager.getLastBackupTime()).toString();
+            }
+            String saveVaultTask = CommunityVault.saveVault != null && CommunityVault.saveVault.isSync() ? "running" : "unknown";
+            String saveChestsTask = CommunityVault.saveChests != null && CommunityVault.saveChests.isSync() ? "running" : "unknown";
+            player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Stacks: " + totalStacks + ", Items: " + totalItems + ", Categories: " + categories);
+            player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Last backup: " + backupInfo);
+            player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Saves - vault: " + saveVaultTask + ", chests: " + saveChestsTask);
             return true;
         }
 
@@ -132,7 +166,15 @@ public class VaultCommand implements CommandExecutor {
         Player player = (Player) event.getWhoClicked();
         ItemStack clickedItem = event.getCurrentItem();
         String title = event.getView().getTitle();
-        String searchString =  player.getMetadata("searchString").get(0).asString();
+        String searchString = null;
+        if (player.hasMetadata("searchString") && !player.getMetadata("searchString").isEmpty()) {
+            searchString = player.getMetadata("searchString").get(0).asString();
+        } else {
+            // Fallback: cancel if search context is missing
+            event.setCancelled(true);
+            player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.RED + "Search context missing. Reopen the search.");
+            return;
+        }
 
         // Check if the player clicked in a category inventory
         if (title.contains("(Page") && title.contains("(Search)") ) {
@@ -146,7 +188,7 @@ public class VaultCommand implements CommandExecutor {
             if (!isValid) {
                 event.setCancelled(true); // Prevent item withdrawal
             }
-            if (clickedItem != null && clickedItem.getType() == Material.BARRIER) {
+            if (clickedItem != null && clickedItem.getType() == Material.BARRIER && clickedItem.getItemMeta() != null && "Back".equals(clickedItem.getItemMeta().getDisplayName())) {
                 // Back button
                 event.setCancelled(false);
                 openMainVaultInventory(player, isValid);
@@ -154,9 +196,8 @@ public class VaultCommand implements CommandExecutor {
             }
 
 
-            if (clickedItem != null && clickedItem.getType() == Material.ARROW) {
+            if (clickedItem != null && clickedItem.getType() == Material.ARROW && clickedItem.getItemMeta() != null && clickedItem.getItemMeta().hasDisplayName()) {
                 // Determine if it's "Next Page" or "Previous Page"
-                String categoryName = title.split(" \\(Page")[0]; // Extract category name
                 if (clickedItem.getItemMeta() != null) {
                     String displayName = clickedItem.getItemMeta().getDisplayName();
                     if (displayName.equals("Next Page")) {
@@ -176,6 +217,12 @@ public class VaultCommand implements CommandExecutor {
                     int currentAmountInVault = VaultStorage.getItemCountFromVault(material);
                     //player.sendMessage("Attempting to withdraw " + amountToWithdraw + " " + material.toString() + ". Current in vault: " + currentAmountInVault);
 
+                    if (!canFitInInventory(player, clickedItem)) {
+                        event.setCancelled(true);
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.RED + "You do not have space in your inventory!");
+                        return;
+                    }
+
                     if (currentAmountInVault >= amountToWithdraw) {
                         // Ensure to update the vault storage before allowing the item to be taken out
                         if(!VaultStorage.removeExactItemFromVault(clickedItem))
@@ -187,19 +234,16 @@ public class VaultCommand implements CommandExecutor {
 
                         // Add the item to the player's inventory
                         ItemStack withdrawItem = clickedItem.clone();
-                        int firstslot = player.getInventory().firstEmpty();
-                        if(firstslot != -1)
-                        {
-                            player.getInventory().addItem(withdrawItem);
-                            currentAmountInVault = VaultStorage.getItemCountFromVault(material);
-                            player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "You have withdrawn " + amountToWithdraw + " " + material.toString() + " from the vault.");
-                        }
-                        else
-                        {
+                        Map<Integer, ItemStack> leftovers = player.getInventory().addItem(withdrawItem);
+                        if (!leftovers.isEmpty()) {
+                            // Roll back removal if somehow inventory rejected the item
+                            VaultStorage.addItemToVault(withdrawItem);
                             event.setCancelled(true);
                             player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.RED + "You do not have space in your inventory!");
                             return;
                         }
+                        currentAmountInVault = VaultStorage.getItemCountFromVault(material);
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "You have withdrawn " + amountToWithdraw + " " + material.toString() + " from the vault.");
                     } else {
                         player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.RED + "Not enough " + material.toString() + " in the vault. Available: " + currentAmountInVault);
                     }
@@ -489,7 +533,7 @@ public class VaultCommand implements CommandExecutor {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.setDisplayName(displayName);
-            meta.lore();
+            meta.setLore(Collections.singletonList(ChatColor.YELLOW + "Click to navigate"));
             item.setItemMeta(meta);
         }
         return item;
@@ -507,8 +551,8 @@ public class VaultCommand implements CommandExecutor {
             event.setCancelled(true); // Prevent item withdrawal
 
             if (clickedItem != null && (clickedItem.getType() == Material.ARROW || clickedItem.getType() == Material.EMERALD || clickedItem.getType() == Material.RED_DYE)) {
-                String displayName = clickedItem.getItemMeta().getDisplayName();
-                if(!displayName.equals("Next Page") && !displayName.equals("Previous Page") && !displayName.equals("Select Category") && !displayName.equals("Stop Selecting") && clickedItem.getType() != Material.AIR && (player.hasMetadata("categorySelect") && player.getMetadata("categorySelect").get(0).asBoolean()) )
+                String displayName = (clickedItem.getItemMeta() != null && clickedItem.getItemMeta().hasDisplayName()) ? clickedItem.getItemMeta().getDisplayName() : "";
+                if(!"Next Page".equals(displayName) && !"Previous Page".equals(displayName) && !"Select Category".equals(displayName) && !"Stop Selecting".equals(displayName) && clickedItem.getType() != Material.AIR && (player.hasMetadata("categorySelect") && player.getMetadata("categorySelect").get(0).asBoolean()) )
                 {
                     String itemType = clickedItem.getType().toString();
 
@@ -516,13 +560,13 @@ public class VaultCommand implements CommandExecutor {
                     boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
                     openMainVaultInventory(player, canWithdraw);
                 }
-                else if (!displayName.equals("Next Page") && !displayName.equals("Previous Page") && !displayName.equals("Select Category") && !displayName.equals("Stop Selecting") && clickedItem.getType() != Material.AIR) {
+                else if (!"Next Page".equals(displayName) && !"Previous Page".equals(displayName) && !"Select Category".equals(displayName) && !"Stop Selecting".equals(displayName) && clickedItem.getType() != Material.AIR) {
                     Material clickedMaterial = clickedItem.getType();
                     openMaterialStacksInventory(player, clickedMaterial); // Open material stacks
                 }
 
             }
-            if (clickedItem != null && clickedItem.getType() == Material.ARROW) {
+            if (clickedItem != null && clickedItem.getType() == Material.ARROW && clickedItem.getItemMeta() != null && clickedItem.getItemMeta().hasDisplayName()) {
                 // Determine if it's "Next Page" or "Previous Page"
                 String categoryName = title.split(" \\(Page")[0]; // Extract category name
                 String displayName = clickedItem.getItemMeta().getDisplayName();
@@ -570,7 +614,7 @@ public class VaultCommand implements CommandExecutor {
                         openCategoryInventoryPage(player, categoryName, items, currentPage - 1);
                     }
                 }
-            } else if (clickedItem != null && clickedItem.getType() == Material.BARRIER) {
+            } else if (clickedItem != null && clickedItem.getType() == Material.BARRIER && clickedItem.getItemMeta() != null && "Back".equals(clickedItem.getItemMeta().getDisplayName())) {
                 // Back button
                 boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
                 openMainVaultInventory(player, canWithdraw);
@@ -676,7 +720,7 @@ public class VaultCommand implements CommandExecutor {
             if (!isValid) {
                 event.setCancelled(true); // Prevent item withdrawal
             }
-            if (clickedItem != null && clickedItem.getType() == Material.BARRIER) {
+            if (clickedItem != null && clickedItem.getType() == Material.BARRIER && clickedItem.getItemMeta() != null && "Back".equals(clickedItem.getItemMeta().getDisplayName())) {
                 // Back button
                 event.setCancelled(false);
                 boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
@@ -685,7 +729,7 @@ public class VaultCommand implements CommandExecutor {
             }
 
 
-            if (clickedItem != null && clickedItem.getType() == Material.ARROW) {
+            if (clickedItem != null && clickedItem.getType() == Material.ARROW && clickedItem.getItemMeta() != null && clickedItem.getItemMeta().hasDisplayName()) {
                 // Determine if it's "Next Page" or "Previous Page"
                 String categoryName = title.split(" \\(Page")[0]; // Extract category name
                 if (clickedItem.getItemMeta() != null) {
@@ -707,6 +751,12 @@ public class VaultCommand implements CommandExecutor {
                     int currentAmountInVault = VaultStorage.getItemCountFromVault(material);
                     //player.sendMessage("Attempting to withdraw " + amountToWithdraw + " " + material.toString() + ". Current in vault: " + currentAmountInVault);
 
+                    if (!canFitInInventory(player, clickedItem)) {
+                        event.setCancelled(true);
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.RED + "You do not have space in your inventory!");
+                        return;
+                    }
+
                     if (currentAmountInVault >= amountToWithdraw) {
                         // Ensure to update the vault storage before allowing the item to be taken out
                         if(!VaultStorage.removeExactItemFromVault(clickedItem))
@@ -718,19 +768,16 @@ public class VaultCommand implements CommandExecutor {
 
                         // Add the item to the player's inventory
                         ItemStack withdrawItem = clickedItem.clone();
-                        int firstslot = player.getInventory().firstEmpty();
-                        if(firstslot != -1)
-                        {
-                            player.getInventory().addItem(withdrawItem);
-                            currentAmountInVault = VaultStorage.getItemCountFromVault(material);
-                            player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "You have withdrawn " + amountToWithdraw + " " + material.toString() + " from the vault.");
-                        }
-                        else
-                        {
+                        Map<Integer, ItemStack> leftovers = player.getInventory().addItem(withdrawItem);
+                        if (!leftovers.isEmpty()) {
+                            // Roll back removal if inventory rejected the item
+                            VaultStorage.addItemToVault(withdrawItem);
                             event.setCancelled(true);
                             player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.RED + "You do not have space in your inventory!");
                             return;
                         }
+                        currentAmountInVault = VaultStorage.getItemCountFromVault(material);
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "You have withdrawn " + amountToWithdraw + " " + material.toString() + " from the vault.");
 
 
                     } else {
@@ -767,7 +814,30 @@ public class VaultCommand implements CommandExecutor {
         return combinedSet.toArray(new Material[0]);
     }
 
+    // Check if the player's inventory can fully fit the item (respecting stack sizes and similarity)
+    private boolean canFitInInventory(Player player, ItemStack itemStack) {
+        if (itemStack == null || itemStack.getType() == Material.AIR) {
+            return true;
+        }
 
+        int remaining = itemStack.getAmount();
+        int maxStack = itemStack.getMaxStackSize();
+        ItemStack[] contents = player.getInventory().getStorageContents();
+
+        for (ItemStack slot : contents) {
+            if (slot == null || slot.getType() == Material.AIR) {
+                remaining -= maxStack;
+            } else if (slot.isSimilar(itemStack) && slot.getAmount() < slot.getMaxStackSize()) {
+                remaining -= (slot.getMaxStackSize() - slot.getAmount());
+            }
+
+            if (remaining <= 0) {
+                return true;
+            }
+        }
+
+        return remaining <= 0;
+    }
 
 }
 

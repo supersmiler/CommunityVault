@@ -254,13 +254,13 @@ public class ChestInteractListener implements Listener {
                 Location chestLocation = chest.getBlock().getLocation();
                 Player player = event.getPlayer();
                 if (validWithdrawalChests.contains(chestLocation)) {
-                    player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Withdrawal Chest.");
+                    //player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Withdrawal Chest.");
                     // Handle withdrawal logic (open inventory, allow item withdrawal, etc.)
                     event.setCancelled(true);
                     vaultCommand.openMainVaultInventory(player, true);
                 } else if (validDepositChests.contains(chestLocation)) {
-                    player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA +  "Deposit Chest.");
-                    event.getPlayer().sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Items placed here will be sent to the community vault.");
+                    //player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA +  "Deposit Chest.");
+                    //event.getPlayer().sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Items placed here will be sent to the community vault.");
                     // Handle deposit logic (move items from chest to vault, etc.)
                 }
             }

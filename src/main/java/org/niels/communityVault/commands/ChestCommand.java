@@ -48,8 +48,11 @@ public class ChestCommand implements CommandExecutor {
 
     public void buyWithdrawalChest(Player player) {
         int buyAmount = configManager.getInt("diamondCostWithdrawalChest");
-        if (player.getInventory().contains(Material.DIAMOND, buyAmount)) {
-            player.getInventory().removeItem(new ItemStack(Material.DIAMOND, buyAmount)); // Charge diamonds
+        boolean requiresPayment = buyAmount > 0;
+        if (!requiresPayment || player.getInventory().contains(Material.DIAMOND, buyAmount)) {
+            if (requiresPayment) {
+                player.getInventory().removeItem(new ItemStack(Material.DIAMOND, buyAmount)); // Charge diamonds
+            }
             ItemStack chestItem = new ItemStack(Material.CHEST);
 
             // Add custom metadata to identify it as a withdrawal chest
@@ -63,15 +66,18 @@ public class ChestCommand implements CommandExecutor {
             player.getInventory().addItem(chestItem); // Give chest to player
             player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.GREEN + "You bought a Withdrawal Chest! Place it to activate.");
 
-        } else {
+        } else { // Only reached if payment is required
             player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.RED + "You need "+ buyAmount +" diamonds to buy a Withdrawal Chest.");
         }
     }
 
     public void buyDepositChest(Player player) {
         int buyAmount = configManager.getInt("diamondCostDepositChest");
-        if (player.getInventory().contains(Material.DIAMOND, buyAmount)) {
-            player.getInventory().removeItem(new ItemStack(Material.DIAMOND, buyAmount)); // Charge diamonds
+        boolean requiresPayment = buyAmount > 0;
+        if (!requiresPayment || player.getInventory().contains(Material.DIAMOND, buyAmount)) {
+            if (requiresPayment) {
+                player.getInventory().removeItem(new ItemStack(Material.DIAMOND, buyAmount)); // Charge diamonds
+            }
             ItemStack chestItem = new ItemStack(Material.CHEST);
 
             // Add custom metadata to identify it as a deposit chest
@@ -84,7 +90,7 @@ public class ChestCommand implements CommandExecutor {
 
             player.getInventory().addItem(chestItem); // Give chest to player
             player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.GREEN + "You bought a Deposit Chest! Place it to activate.");
-        } else {
+        } else { // Only reached if payment is required
             player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.RED + "You need "+ buyAmount +" diamonds to buy a Deposit Chest.");
         }
     }

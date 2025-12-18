@@ -1,0 +1,20 @@
+categories:
+  building_blocks:
+    name: Building Blocks
+    icon: BRICKS
+    items:
+    - STONE
+    - GRANITE
+    - BRICKS
+  decoration_blocks:
+    name: Decoration Blocks
+    icon: PAINTING
+    items:
+    - PAINTING
+    - ITEM_FRAME
+  redstone:
+    name: Redstone
+    icon: REDSTONE
+    items:
+    - REDSTONE
+    - REDSTONE_TORCH

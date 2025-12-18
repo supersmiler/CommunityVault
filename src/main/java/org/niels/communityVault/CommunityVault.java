@@ -7,6 +7,7 @@ import org.niels.communityVault.commands.ChestCommand;
 import org.niels.communityVault.commands.VaultCommand;
 import org.niels.communityVault.listeners.ChestInteractListener;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.niels.communityVault.utils.BackupManager;
 import org.niels.communityVault.utils.CategoryConfig;
 import org.niels.communityVault.utils.ConfigManager;
 import org.niels.communityVault.utils.VaultStorage;
@@ -29,6 +30,10 @@ public class CommunityVault extends JavaPlugin {
         categoryConfig = new CategoryConfig(this);
         configManager = new ConfigManager(this);
 
+        // Clean up old backups and create a fresh one before loading/compacting data
+        BackupManager.pruneOldBackups(getLogger());
+        BackupManager.backupVaultAndCategories(getLogger());
+
         VaultStorage.loadCategories(categoryConfig);
         VaultCommand vaultCommand = new VaultCommand(this, categoryConfig);
         ChestCommand chestCommand = new ChestCommand(configManager);
@@ -41,6 +46,15 @@ public class CommunityVault extends JavaPlugin {
         }
         if (this.getCommand("searchvault") != null) {
             this.getCommand("searchvault").setExecutor(vaultCommand);
+        }
+        if (this.getCommand("sv") != null) {
+            this.getCommand("sv").setExecutor(vaultCommand);
+        }
+        if (this.getCommand("cvaultcompact") != null) {
+            this.getCommand("cvaultcompact").setExecutor(vaultCommand);
+        }
+        if (this.getCommand("cvaultstatus") != null) {
+            this.getCommand("cvaultstatus").setExecutor(vaultCommand);
         }
         if (this.getCommand("buywc") != null) {
             this.getCommand("buywc").setExecutor(chestCommand);
@@ -62,6 +76,7 @@ public class CommunityVault extends JavaPlugin {
         getServer().getScheduler().cancelTask(saveChests.getTaskId());
         VaultStorage.saveVaultToFile();
         ChestInteractListener.saveChestsToFile();
+        BackupManager.backupVaultAndCategories(getLogger());
         //configManager.saveConfig();
         getLogger().info("CommunityVault plugin has been safely shut down");
     }

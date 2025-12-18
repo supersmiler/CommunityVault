@@ -178,9 +178,41 @@ public class VaultStorage {
         }
     }
 
-    // Add an item to the vault
+    // Add an item to the vault, merging into existing stacks when possible
     public static void addItemToVault(ItemStack item) {
-        vaultStorage.add(item); vaultStorage.sort(Comparator.comparing(itemStack -> itemStack.getType().name()));
+        if (item == null || item.getType() == Material.AIR) {
+            return;
+        }
+
+        ItemStack toAdd = item.clone(); // Avoid mutating caller's stack
+        int amount = toAdd.getAmount();
+        int maxStack = toAdd.getMaxStackSize();
+
+        // Try to fill existing similar stacks first
+        if (maxStack > 1) {
+            for (ItemStack stored : vaultStorage) {
+                if (stored != null && stored.isSimilar(toAdd) && stored.getAmount() < stored.getMaxStackSize()) {
+                    int canMove = Math.min(stored.getMaxStackSize() - stored.getAmount(), amount);
+                    stored.setAmount(stored.getAmount() + canMove);
+                    amount -= canMove;
+                    if (amount <= 0) {
+                        vaultStorage.sort(Comparator.comparing(itemStack -> itemStack.getType().name()));
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Add any remaining amount as new stacks
+        while (amount > 0) {
+            int stackAmount = Math.min(maxStack, amount);
+            ItemStack newStack = toAdd.clone();
+            newStack.setAmount(stackAmount);
+            vaultStorage.add(newStack);
+            amount -= stackAmount;
+        }
+
+        vaultStorage.sort(Comparator.comparing(itemStack -> itemStack.getType().name()));
     }
     public static void removeItemFromCategory(String key, Material material, CategoryConfig categoryConfig) {
         Category category = categories.get(key);
@@ -366,7 +398,10 @@ public class VaultStorage {
             ItemStack item = vaultStorage.get(i);
 
             // Match on full item similarity and amount to avoid removing the wrong shulker box
-            if (item != null && item.isSimilar(targetStack) && item.getAmount() == targetStack.getAmount()) {
+            if (item != null
+                    && item.getType() == targetStack.getType()
+                    && item.getAmount() == targetStack.getAmount()
+                    && (item.getMaxStackSize() <= 1 ? Objects.equals(item.getItemMeta(), targetStack.getItemMeta()) : item.isSimilar(targetStack))) {
                 // Remove the exact stack
                 vaultStorage.remove(i);
                 return true; // Return true indicating the item was found and removed
@@ -419,6 +454,78 @@ public class VaultStorage {
             }
         }
         return totalAmount;
+    }
+
+    public static int getTotalItemCount() {
+        int total = 0;
+        for (ItemStack item : vaultStorage) {
+            if (item != null && item.getType() != Material.AIR) {
+                total += item.getAmount();
+            }
+        }
+        return total;
+    }
+
+    // Pack all stackable items to their most compact form (max stack sizes, grouped by similarity)
+    public static void compactVault() {
+        List<StackAggregate> aggregates = new ArrayList<>();
+
+        for (ItemStack item : vaultStorage) {
+            if (item == null || item.getType() == Material.AIR) {
+                continue;
+            }
+
+            // Skip compaction for unstackable items (max stack size 1) to avoid shulker/tool data loss
+            if (item.getMaxStackSize() <= 1) {
+                ItemStack clone = item.clone();
+                clone.setAmount(item.getAmount());
+                aggregates.add(new StackAggregate(clone, item.getAmount()));
+                continue;
+            }
+
+            boolean merged = false;
+            for (StackAggregate aggregate : aggregates) {
+                if (aggregate.prototype.isSimilar(item)) {
+                    aggregate.totalAmount += item.getAmount();
+                    merged = true;
+                    break;
+                }
+            }
+
+            if (!merged) {
+                ItemStack prototype = item.clone();
+                prototype.setAmount(1); // normalize amount for comparisons
+                aggregates.add(new StackAggregate(prototype, item.getAmount()));
+            }
+        }
+
+        vaultStorage.clear();
+
+        for (StackAggregate aggregate : aggregates) {
+            int remaining = aggregate.totalAmount;
+            int maxStack = aggregate.prototype.getMaxStackSize();
+
+            while (remaining > 0) {
+                int stackAmount = Math.min(maxStack, remaining);
+                ItemStack stacked = aggregate.prototype.clone();
+                stacked.setAmount(stackAmount);
+                vaultStorage.add(stacked);
+                remaining -= stackAmount;
+            }
+        }
+
+        vaultStorage.sort(Comparator.comparing(itemStack -> itemStack.getType().name()));
+    }
+
+    // Helper to carry prototype + count for compaction
+    private static class StackAggregate {
+        final ItemStack prototype;
+        int totalAmount;
+
+        StackAggregate(ItemStack prototype, int totalAmount) {
+            this.prototype = prototype;
+            this.totalAmount = totalAmount;
+        }
     }
 
 
