@@ -10,6 +10,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 import org.niels.communityVault.utils.BackupManager;
 import org.niels.communityVault.utils.CategoryConfig;
 import org.niels.communityVault.utils.ConfigManager;
+import org.niels.communityVault.utils.UpdateChecker;
 import org.niels.communityVault.utils.VaultStorage;
 import org.bstats.bukkit.Metrics;
 
@@ -33,6 +34,7 @@ public class CommunityVault extends JavaPlugin {
 
         categoryConfig = new CategoryConfig(this);
         configManager = new ConfigManager(this);
+        UpdateChecker.checkForUpdates(this);
 
         // Clean up old backups and create a fresh one before loading/compacting data
         BackupManager.pruneOldBackups(getLogger());
