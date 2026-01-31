@@ -9,6 +9,8 @@ import org.bukkit.block.Chest;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.block.DoubleChest;
+import org.bukkit.inventory.DoubleChestInventory;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
@@ -16,6 +18,8 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -130,6 +134,44 @@ public class ChestInteractListener implements Listener {
     }
 
 
+    private boolean isRegisteredDepositChest(Location location) {
+        if (validDepositChests.contains(location)) return true;
+        
+        Block block = location.getBlock();
+        if (block.getType() == Material.CHEST) {
+            Chest chest = (Chest) block.getState();
+            Inventory inventory = chest.getInventory();
+            if (inventory instanceof DoubleChestInventory) {
+                DoubleChest doubleChest = (DoubleChest) inventory.getHolder();
+                if (doubleChest != null) {
+                    Location leftLoc = ((Chest) doubleChest.getLeftSide()).getBlock().getLocation();
+                    Location rightLoc = ((Chest) doubleChest.getRightSide()).getBlock().getLocation();
+                    return validDepositChests.contains(leftLoc) || validDepositChests.contains(rightLoc);
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isRegisteredWithdrawalChest(Location location) {
+        if (validWithdrawalChests.contains(location)) return true;
+
+        Block block = location.getBlock();
+        if (block.getType() == Material.CHEST) {
+            Chest chest = (Chest) block.getState();
+            Inventory inventory = chest.getInventory();
+            if (inventory instanceof DoubleChestInventory) {
+                DoubleChest doubleChest = (DoubleChest) inventory.getHolder();
+                if (doubleChest != null) {
+                    Location leftLoc = ((Chest) doubleChest.getLeftSide()).getBlock().getLocation();
+                    Location rightLoc = ((Chest) doubleChest.getRightSide()).getBlock().getLocation();
+                    return validWithdrawalChests.contains(leftLoc) || validWithdrawalChests.contains(rightLoc);
+                }
+            }
+        }
+        return false;
+    }
+
     @EventHandler
     public void onBlockPlace(BlockPlaceEvent event) {
         Block block = event.getBlock();
@@ -163,7 +205,7 @@ public class ChestInteractListener implements Listener {
         Block block = event.getBlock();
         Location loc = block.getLocation();
 
-        if (validWithdrawalChests.contains(loc) || validDepositChests.contains(loc)) {
+        if (isRegisteredWithdrawalChest(loc) || isRegisteredDepositChest(loc)) {
             event.setDropItems(false); // Prevent the chest from dropping an item
             validWithdrawalChests.remove(loc);
             validDepositChests.remove(loc);
@@ -218,7 +260,7 @@ public class ChestInteractListener implements Listener {
                 if(block != null && block.getType() != Material.AIR)
                 {
                     Location chestLocation = getTargetBlock(player, 5).getLocation();
-                    if (validWithdrawalChests.contains(chestLocation)) {
+                    if (isRegisteredWithdrawalChest(chestLocation)) {
                         vaultCommand.handleSearchClick(event, true); // Allow item withdrawal if accessed via withdrawal chest
                     }
                     else
@@ -253,12 +295,12 @@ public class ChestInteractListener implements Listener {
                 Chest chest = (Chest) event.getClickedBlock().getState();
                 Location chestLocation = chest.getBlock().getLocation();
                 Player player = event.getPlayer();
-                if (validWithdrawalChests.contains(chestLocation)) {
+                if (isRegisteredWithdrawalChest(chestLocation)) {
                     //player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Withdrawal Chest.");
                     // Handle withdrawal logic (open inventory, allow item withdrawal, etc.)
                     event.setCancelled(true);
                     vaultCommand.openMainVaultInventory(player, true);
-                } else if (validDepositChests.contains(chestLocation)) {
+                } else if (isRegisteredDepositChest(chestLocation)) {
                     //player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA +  "Deposit Chest.");
                     //event.getPlayer().sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Items placed here will be sent to the community vault.");
                     // Handle deposit logic (move items from chest to vault, etc.)
@@ -281,12 +323,17 @@ public class ChestInteractListener implements Listener {
 
 
             // Check if it's a Deposit Chest
-            if (validDepositChests.contains(chestLocation)) {
+            if (isRegisteredDepositChest(chestLocation)) {
                 // Move items to the vault
-                for (ItemStack item : inventory.getContents()) {
+                for (int i = 0; i < inventory.getSize(); i++) {
+                    ItemStack item = inventory.getItem(i);
                     if (item != null && item.getType() != Material.AIR) {
-                        VaultStorage.addItemToVault(item); // Add item to vault
-                        inventory.remove(item); // Remove item from the chest
+                        int added = VaultStorage.addItemToVault(item); // Add item to vault
+                        if (added >= item.getAmount()) {
+                            inventory.setItem(i, null); // Remove item from the chest
+                        } else if (added > 0) {
+                            item.setAmount(item.getAmount() - added);
+                        }
                     }
                 }
                 player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Items Deposited!");
@@ -294,8 +341,42 @@ public class ChestInteractListener implements Listener {
 
             // Optional: You could handle withdrawal logic for withdrawal chests similarly
             // Example:
-            if (validWithdrawalChests.contains(chestLocation)) {
+            if (isRegisteredWithdrawalChest(chestLocation)) {
                 // Additional logic if needed for Withdrawal Chests
+            }
+        }
+    }
+
+    @EventHandler
+    public void onInventoryMoveItem(InventoryMoveItemEvent event) {
+        // Check if the source inventory is a hopper
+        if (event.getSource().getType() != InventoryType.HOPPER) {
+            return;
+        }
+
+        // Check if the destination inventory is a chest
+        if (event.getDestination().getHolder() instanceof Chest) {
+            Chest chest = (Chest) event.getDestination().getHolder();
+            Location chestLocation = chest.getBlock().getLocation();
+
+            // Check if it's a Deposit Chest
+            if (isRegisteredDepositChest(chestLocation)) {
+                ItemStack item = event.getItem();
+                if (item != null && item.getType() != Material.AIR) {
+                    int added = VaultStorage.addItemToVault(item);
+                    
+                    if (added >= item.getAmount()) {
+                        // Clear the item from the event so it doesn't move to the chest
+                        event.setItem(new ItemStack(Material.AIR));
+                    } else if (added > 0) {
+                        ItemStack remaining = item.clone();
+                        remaining.setAmount(item.getAmount() - added);
+                        event.setItem(remaining);
+                    } else {
+                        // Nothing added, cancel move to avoid item entering the chest
+                        event.setCancelled(true);
+                    }
+                }
             }
         }
     }
