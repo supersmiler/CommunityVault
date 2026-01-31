@@ -163,7 +163,7 @@ public class VaultCommand implements CommandExecutor {
         int end = Math.min(start + pageSize, items.size());
 
         // Create the inventory for the current page
-        Inventory searchInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.SEARCH), 54,
+        Inventory searchInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.SEARCH, null, 1, null, page), 54,
                 "Search: " + searchTerm + " (Page " + page + ")");
 
         // Add items for the current page
@@ -188,7 +188,6 @@ public class VaultCommand implements CommandExecutor {
     public void handleSearchClick(InventoryClickEvent event, boolean isValid) {
         Player player = (Player) event.getWhoClicked();
         ItemStack clickedItem = event.getCurrentItem();
-        String title = event.getView().getTitle();
         String searchString = null;
         if (player.hasMetadata("searchString") && !player.getMetadata("searchString").isEmpty()) {
             searchString = player.getMetadata("searchString").get(0).asString();
@@ -200,14 +199,10 @@ public class VaultCommand implements CommandExecutor {
         }
 
         // Check if the player clicked in a category inventory
-        if (title.contains("(Page")) {
-            Pattern pattern = Pattern.compile("\\d+");
-            Matcher matcher = pattern.matcher(title);
-            int currentPage = 1;
-            // If a match is found, parse it as the current page
-            if (matcher.find()) {
-                currentPage = Integer.parseInt(matcher.group());
-            }
+        VaultMenuHolder holder = event.getView().getTopInventory().getHolder() instanceof VaultMenuHolder
+                ? (VaultMenuHolder) event.getView().getTopInventory().getHolder() : null;
+        if (holder != null && holder.getType() == VaultMenuHolder.Type.SEARCH) {
+            int currentPage = holder.getPage();
             if (!isValid) {
                 event.setCancelled(true); // Prevent item withdrawal
             }
@@ -291,10 +286,10 @@ public class VaultCommand implements CommandExecutor {
         Inventory mainVaultInventory;
         if(isSelecting)
         {
-            mainVaultInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.MAIN_SELECT), 54, "Select Category For Item");
+            mainVaultInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.MAIN_SELECT, null, 1, null, 1), 54, "Select Category For Item");
         }
         else {
-            mainVaultInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.MAIN), 54, "Community Vault");
+            mainVaultInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.MAIN, null, 1, null, 1), 54, "Community Vault");
         }
 
         // Add categories dynamically from VaultStorage
@@ -370,13 +365,9 @@ public class VaultCommand implements CommandExecutor {
             return; // Ignore empty slots
         }
 
-        String title = event.getView().getTitle();
-
-        // Check if the player clicked in the main vault inventory
-        if (title.contains("Community Vault")) {
-            event.setCancelled(true); // Prevent taking items
-            String categoryDisplayName = clickedItem.getItemMeta().getDisplayName();
-            String categoryKey = getCategoryKeyByDisplayName(categoryDisplayName); // Helper to retrieve the key by name
+        event.setCancelled(true); // Prevent taking items
+        String categoryDisplayName = clickedItem.getItemMeta().getDisplayName();
+        String categoryKey = getCategoryKeyByDisplayName(categoryDisplayName); // Helper to retrieve the key by name
             if(clickedItem.getType() == Material.RED_DYE)
             {
                 String displayName = clickedItem.getItemMeta().getDisplayName();
@@ -456,8 +447,6 @@ public class VaultCommand implements CommandExecutor {
             else if (categoryKey != null) {
                 openCategoryInventory(player, categoryKey, VaultStorage.getItemsByCategoryKey(categoryKey).toArray(new ItemStack[0]));
             }
-
-        }
     }
 
     private ItemStack[] getRemainingItems()
@@ -546,7 +535,7 @@ public class VaultCommand implements CommandExecutor {
     public void openCategoryInventoryPage(Player player, String categoryName, ItemStack[] items, int page) {
         // Sort items alphabetically by Material name
         Arrays.sort(items, Comparator.comparing(itemStack -> itemStack.getType().name()));
-        Inventory categoryInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.CATEGORY), 54, categoryName + " (Page " + page + ")");
+        Inventory categoryInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.CATEGORY, null, 1, null, page), 54, categoryName + " (Page " + page + ")");
 
         Map<Material, Integer> materialCountMap = new HashMap<>();
 
@@ -658,7 +647,9 @@ public class VaultCommand implements CommandExecutor {
         String title = event.getView().getTitle();
 
         // Check if the player clicked in a category inventory
-        if (title.contains("(Page")) {
+        VaultMenuHolder holder = event.getView().getTopInventory().getHolder() instanceof VaultMenuHolder
+                ? (VaultMenuHolder) event.getView().getTopInventory().getHolder() : null;
+        if (holder != null && holder.getType() == VaultMenuHolder.Type.CATEGORY) {
             event.setCancelled(true); // Prevent item withdrawal
 
             if (clickedItem != null && (clickedItem.getType() == Material.ARROW || clickedItem.getType() == Material.EMERALD || clickedItem.getType() == Material.RED_DYE)) {
@@ -686,13 +677,7 @@ public class VaultCommand implements CommandExecutor {
                 String categoryName = title.split(" \\(Page")[0]; // Extract category name
                 String displayName = clickedItem.getItemMeta().getDisplayName();
 
-                Pattern pattern = Pattern.compile("\\d+");
-                Matcher matcher = pattern.matcher(title);
-                int currentPage = 1;
-                // If a match is found, parse it as the current page
-                if (matcher.find()) {
-                    currentPage = Integer.parseInt(matcher.group());
-                }
+                int currentPage = holder.getPage();
                 ItemStack[] items = getItemsForCategoryName(categoryName);
 
 
@@ -848,7 +833,7 @@ public class VaultCommand implements CommandExecutor {
 
         // Create the inventory for the current page
         Inventory materialInventory = Bukkit.createInventory(
-                new VaultMenuHolder(VaultMenuHolder.Type.STACKS, parentName, parentPage, material.name()),
+                new VaultMenuHolder(VaultMenuHolder.Type.STACKS, parentName, parentPage, material.name(), page),
                 54,
                 material.name() + " (Page " + page + ")");
 
@@ -877,25 +862,20 @@ public class VaultCommand implements CommandExecutor {
     public void handleStacksClick(InventoryClickEvent event, boolean isValid) {
         Player player = (Player) event.getWhoClicked();
         ItemStack clickedItem = event.getCurrentItem();
-        String title = event.getView().getTitle();
 
         // Check if the player clicked in a category inventory
-        if (title.contains("(Page")) {
-            Pattern pattern = Pattern.compile("\\d+");
-            Matcher matcher = pattern.matcher(title);
-            int currentPage = 1;
-            // If a match is found, parse it as the current page
-            if (matcher.find()) {
-                currentPage = Integer.parseInt(matcher.group());
-            }
+        VaultMenuHolder holder = event.getView().getTopInventory().getHolder() instanceof VaultMenuHolder
+                ? (VaultMenuHolder) event.getView().getTopInventory().getHolder() : null;
+        if (holder != null && holder.getType() == VaultMenuHolder.Type.STACKS) {
+            int currentPage = holder.getPage();
             if (!isValid) {
                 event.setCancelled(true); // Prevent item withdrawal
             }
             if (clickedItem != null && clickedItem.getType() == Material.BARRIER && clickedItem.getItemMeta() != null && "Back".equals(clickedItem.getItemMeta().getDisplayName())) {
                 // Back button
                 event.setCancelled(false);
-                String parentName = getStacksParentName(event.getInventory());
-                int parentPage = getStacksParentPage(event.getInventory());
+                String parentName = getStacksParentName(event.getView().getTopInventory());
+                int parentPage = getStacksParentPage(event.getView().getTopInventory());
                 if (parentName != null) {
                     ItemStack[] items = getItemsForCategoryName(parentName);
                     player.removeMetadata("categoryStacksParent", plugin);
@@ -915,12 +895,12 @@ public class VaultCommand implements CommandExecutor {
                     String displayName = clickedItem.getItemMeta().getDisplayName();
                     if (displayName.equals("Next Page")) {
                         openMaterialStacksInventoryPage(player, event.getInventory().getItem(0).getType(), currentPage + 1,
-                                getStacksParentName(event.getInventory()),
-                                getStacksParentPage(event.getInventory()));
+                                getStacksParentName(event.getView().getTopInventory()),
+                                getStacksParentPage(event.getView().getTopInventory()));
                     } else if (displayName.equals("Previous Page")) {
                         openMaterialStacksInventoryPage(player, event.getInventory().getItem(0).getType(), currentPage - 1,
-                                getStacksParentName(event.getInventory()),
-                                getStacksParentPage(event.getInventory()));
+                                getStacksParentName(event.getView().getTopInventory()),
+                                getStacksParentPage(event.getView().getTopInventory()));
                     }
                 }
             }
@@ -971,8 +951,8 @@ public class VaultCommand implements CommandExecutor {
                 // Cancel the event and refresh the vault page
                 event.setCancelled(true);
                 openMaterialStacksInventoryPage(player, event.getInventory().getItem(0).getType(), currentPage,
-                        getStacksParentName(event.getInventory()),
-                        getStacksParentPage(event.getInventory()));
+                        getStacksParentName(event.getView().getTopInventory()),
+                        getStacksParentPage(event.getView().getTopInventory()));
             } else {
                 event.setCancelled(true); // Prevent withdrawal in view-only mode
                 player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.RED + "You cannot withdraw items from the vault.");
@@ -985,10 +965,7 @@ public class VaultCommand implements CommandExecutor {
 
     // Vault view should be view-only (cannot withdraw items)
     public void handleVaultClick(InventoryClickEvent event) {
-        // Ensure all clicks in the vault inventory are canceled
-        if (event.getView().getTitle().equalsIgnoreCase("Community Vault")) {
-            event.setCancelled(true); // Prevent item withdrawal or manipulation
-        }
+        // Holder routing is handled elsewhere
     }
     private Material[] concat(Material[] first, Material[] second) {
         // Use a Set to automatically remove duplicates

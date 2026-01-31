@@ -433,9 +433,12 @@ public class ChestInteractListener implements Listener {
         VaultMenuHolder holder = event.getView().getTopInventory().getHolder() instanceof VaultMenuHolder
                 ? (VaultMenuHolder) event.getView().getTopInventory().getHolder() : null;
         if (holder != null) {
-            player.removeMetadata("categorySelect", plugin);
-            player.removeMetadata("categorySelectType", plugin);
-            player.removeMetadata("categorySelectUncategorized", plugin);
+            boolean selecting = player.hasMetadata("categorySelect") && player.getMetadata("categorySelect").get(0).asBoolean();
+            if (!selecting) {
+                player.removeMetadata("categorySelect", plugin);
+                player.removeMetadata("categorySelectType", plugin);
+                player.removeMetadata("categorySelectUncategorized", plugin);
+            }
             player.removeMetadata("categoryRemoveTarget", plugin);
         }
 

@@ -23,16 +23,18 @@ public final class VaultMenuHolder implements InventoryHolder {
     private final String parentName;
     private final int parentPage;
     private final String materialName;
+    private final int page;
 
     public VaultMenuHolder(Type type) {
-        this(type, null, 1, null);
+        this(type, null, 1, null, 1);
     }
 
-    public VaultMenuHolder(Type type, String parentName, int parentPage, String materialName) {
+    public VaultMenuHolder(Type type, String parentName, int parentPage, String materialName, int page) {
         this.type = type;
         this.parentName = parentName;
         this.parentPage = parentPage;
         this.materialName = materialName;
+        this.page = page;
     }
 
     public Type getType() {
@@ -49,6 +51,10 @@ public final class VaultMenuHolder implements InventoryHolder {
 
     public String getMaterialName() {
         return materialName;
+    }
+
+    public int getPage() {
+        return page;
     }
 
     @Override

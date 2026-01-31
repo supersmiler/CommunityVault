@@ -79,6 +79,7 @@ can change all permissions with their permission plugin (LuckPerms, etc.).
 - 📚 Audit/history of deposits/withdrawals.
 - 🛠️ Admin restore from backup command.
 - 🗄️ Optional database backend for multi-server/shared vaults.
+- 📚 Paginated category list in the main vault menu (for large category counts).
 
 ### 💬 Final Notes
 
