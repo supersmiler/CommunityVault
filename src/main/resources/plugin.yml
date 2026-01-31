@@ -1,6 +1,6 @@
 name: CommunityVault
 main: org.niels.communityVault.CommunityVault
-version: "1.2"
+version: "1.3"
 author: Niels
 api-version: '1.21'
 commands:
@@ -28,3 +28,37 @@ commands:
   cvaultreload:
     usage: /cvaultreload
     description: Reload CommunityVault configuration (admin).
+permissions:
+  communityvault.categories:
+    description: Full access to manage categories.
+    default: op
+  communityvault.categories.view:
+    description: View the Category Manager.
+    default: true
+  communityvault.categories.create:
+    description: Create new categories.
+    default: op
+  communityvault.categories.rename:
+    description: Rename categories.
+    default: true
+  communityvault.categories.icon:
+    description: Change category icons.
+    default: true
+  communityvault.categories.additem:
+    description: Add items to categories.
+    default: true
+  communityvault.categories.removeitem:
+    description: Remove items from categories.
+    default: true
+  communityvault.categories.delete:
+    description: Delete categories.
+    default: op
+  communityvault.compact:
+    description: Compact and save the vault.
+    default: op
+  communityvault.status:
+    description: View vault status.
+    default: op
+  communityvault.reload:
+    description: Reload configuration.
+    default: op

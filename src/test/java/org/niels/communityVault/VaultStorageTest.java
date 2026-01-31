@@ -1,6 +1,5 @@
 package org.niels.communityVault;
 
-import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -12,16 +11,13 @@ import org.junit.jupiter.api.Test;
 import org.niels.communityVault.utils.VaultStorage;
 import org.niels.communityVault.commands.VaultCommand;
 import org.niels.communityVault.utils.CategoryConfig;
-import org.niels.communityVault.utils.ConfigManager;
-import org.bukkit.plugin.Plugin;
+import org.niels.communityVault.ui.CategoryMenu;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.entity.Player;
 import java.lang.reflect.Method;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -100,8 +96,10 @@ class VaultStorageTest {
     @Test
     void canFitInInventoryReturnsFalseWhenFull() throws Exception {
         VaultStorage.clearVault();
-        Plugin plugin = MockBukkit.createMockPlugin();
-        VaultCommand vaultCommand = new VaultCommand(plugin, new CategoryConfig(plugin));
+        CommunityVault plugin = (CommunityVault) MockBukkit.getMock().getPluginManager().getPlugin("CommunityVault");
+        CategoryConfig categoryConfig = new CategoryConfig(plugin);
+        CategoryMenu categoryMenu = new CategoryMenu(plugin, categoryConfig);
+        VaultCommand vaultCommand = new VaultCommand(plugin, categoryConfig, categoryMenu);
 
         Player player = MockBukkit.getMock().addPlayer();
         PlayerInventory inv = player.getInventory();
@@ -158,6 +156,31 @@ class VaultStorageTest {
         VaultStorage.addItemToVault(null);
         VaultStorage.addItemToVault(new ItemStack(Material.AIR, 1));
         assertEquals(0, VaultStorage.getVaultItems().size(), "Null/air should not be added");
+    }
+
+    @Test
+    void categoryCreateRenameDeleteAndItemMembership() {
+        VaultStorage.clearVault();
+        CategoryConfig categoryConfig = new CategoryConfig(MockBukkit.getMock().getPluginManager().getPlugin("CommunityVault"));
+
+        boolean created = VaultStorage.createCategory("test_category", "Test Category", Material.STONE, categoryConfig);
+        assertTrue(created, "Category should be created");
+        assertEquals("Test Category", VaultStorage.getCategoryName("test_category"));
+
+        boolean renamed = VaultStorage.renameCategory("test_category", "Renamed Category", categoryConfig);
+        assertTrue(renamed, "Category should be renamed");
+        assertEquals("Renamed Category", VaultStorage.getCategoryName("test_category"));
+
+        VaultStorage.addItemToCategory("test_category", Material.DIRT, categoryConfig);
+        assertTrue(VaultStorage.getMaterialsInCategory("test_category").contains(Material.DIRT));
+
+        boolean removed = VaultStorage.removeItemFromCategory("test_category", Material.DIRT, categoryConfig);
+        assertTrue(removed, "Item should be removed from category");
+        assertTrue(!VaultStorage.getMaterialsInCategory("test_category").contains(Material.DIRT));
+
+        boolean deleted = VaultStorage.deleteCategory("test_category", categoryConfig);
+        assertTrue(deleted, "Category should be deleted");
+        assertEquals("Unknown", VaultStorage.getCategoryName("test_category"));
     }
 
     @Test

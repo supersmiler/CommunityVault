@@ -36,6 +36,7 @@ public class VaultStorage {
     // Method to load categories from the configuration
     public static void loadCategories(CategoryConfig categoryConfig) {
         FileConfiguration config = categoryConfig.getConfig();
+        categories.clear();
 
         if (config.contains("categories")) {
             for (String key : config.getConfigurationSection("categories").getKeys(false)) {
@@ -174,9 +175,61 @@ public class VaultStorage {
     public static void addItemToCategory(String key, Material material, CategoryConfig categoryConfig) {
         Category category = categories.get(key);
         if (category != null) {
-            category.materials.add(material);
-            saveCategoryToConfig(key, category, categoryConfig);
+            if (!category.materials.contains(material)) {
+                category.materials.add(material);
+                saveCategoryToConfig(key, category, categoryConfig);
+            }
         }
+    }
+
+    public static boolean createCategory(String key, String name, Material icon, CategoryConfig categoryConfig) {
+        if (key == null || key.isBlank() || categories.containsKey(key)) {
+            return false;
+        }
+        Category category = new Category(name, new ArrayList<>(), icon != null ? icon : Material.CHEST);
+        categories.put(key, category);
+        saveCategoryToConfig(key, category, categoryConfig);
+        return true;
+    }
+
+    public static boolean renameCategory(String key, String name, CategoryConfig categoryConfig) {
+        Category category = categories.get(key);
+        if (category == null || name == null || name.isBlank()) {
+            return false;
+        }
+        category.name = name;
+        saveCategoryToConfig(key, category, categoryConfig);
+        return true;
+    }
+
+    public static boolean setCategoryIcon(String key, Material icon, CategoryConfig categoryConfig) {
+        Category category = categories.get(key);
+        if (category == null || icon == null) {
+            return false;
+        }
+        category.icon = icon;
+        saveCategoryToConfig(key, category, categoryConfig);
+        return true;
+    }
+
+    public static boolean deleteCategory(String key, CategoryConfig categoryConfig) {
+        Category category = categories.remove(key);
+        if (category == null) {
+            return false;
+        }
+        FileConfiguration config = categoryConfig.getConfig();
+        config.set("categories." + key, null);
+        categoryConfig.saveConfig();
+        return true;
+    }
+
+    public static boolean removeItemFromCategory(String key, Material material, CategoryConfig categoryConfig) {
+        Category category = categories.get(key);
+        if (category != null && category.materials.remove(material)) {
+            saveCategoryToConfig(key, category, categoryConfig);
+            return true;
+        }
+        return false;
     }
 
     // Add an item to the vault, merging into existing stacks when possible
@@ -227,13 +280,6 @@ public class VaultStorage {
 
         vaultStorage.sort(Comparator.comparing(itemStack -> itemStack.getType().name()));
         return actualAdded;
-    }
-    public static void removeItemFromCategory(String key, Material material, CategoryConfig categoryConfig) {
-        Category category = categories.get(key);
-        if (category != null) {
-            category.materials.remove(material);
-            saveCategoryToConfig(key, category, categoryConfig);
-        }
     }
 
     // Save a category back to the configuration file

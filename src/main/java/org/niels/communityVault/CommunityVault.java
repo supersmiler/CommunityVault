@@ -13,6 +13,7 @@ import org.niels.communityVault.utils.ConfigManager;
 import org.niels.communityVault.utils.UpdateChecker;
 import org.niels.communityVault.utils.VaultStorage;
 import org.bstats.bukkit.Metrics;
+import org.niels.communityVault.ui.CategoryMenu;
 
 
 public class CommunityVault extends JavaPlugin {
@@ -41,7 +42,9 @@ public class CommunityVault extends JavaPlugin {
         BackupManager.backupVaultAndCategories(getLogger());
 
         VaultStorage.loadCategories(categoryConfig);
-        VaultCommand vaultCommand = new VaultCommand(this, categoryConfig);
+        CategoryMenu categoryMenu = new CategoryMenu(this, categoryConfig);
+        VaultCommand vaultCommand = new VaultCommand(this, categoryConfig, categoryMenu);
+        categoryMenu.setVaultCommand(vaultCommand);
         ChestCommand chestCommand = new ChestCommand(configManager);
         VaultStorage.loadVaultFromFile();
 
@@ -73,6 +76,7 @@ public class CommunityVault extends JavaPlugin {
         }
 
         getServer().getPluginManager().registerEvents(new ChestInteractListener(this, vaultCommand), this);
+        getServer().getPluginManager().registerEvents(categoryMenu, this);
         saveVault = getServer().getScheduler().runTaskTimer(this, VaultStorage::saveVaultToFile, 2000, 2000);
         saveChests = getServer().getScheduler().runTaskTimer(this, ChestInteractListener::saveChestsToFile, 2000, 2000);
 

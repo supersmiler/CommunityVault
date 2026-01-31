@@ -9,7 +9,7 @@ and withdrawal chests, organized categories, and search to keep a clean, immersi
 
 - 🔓 Global Vault: Shared storage via `/cvault` (read-only anywhere).
 - 📦 Deposit & Withdrawal Chests: Buy with `/buydc` and `/buywc` (configurable costs, 0 allowed).
-- 🧠 Automatic Sorting & Categories: Items organized by material; categories from `categories.yml`.
+- 🧠 Automatic Sorting & Categories: Items organized by material; categories editable in-game.
 - 🔍 Vault Search: `/searchvault <term>` (alias `/sv`); withdrawing works when looking at a withdrawal chest.
 - 📑 Pagination UI: Clean pages with navigation buttons and tooltips.
 - 🗂️ Manual Compaction: `/cvaultcompact` stacks items; unstackables (e.g., shulkers) are left safe.
@@ -33,6 +33,13 @@ and withdrawal chests, organized categories, and search to keep a clean, immersi
 - Withdrawal chests only pair with withdrawal chests.
 - A normal chest cannot attach to a special chest (deposit/withdrawal).
 
+### 🧩 Category Management
+
+- Open `Manage Categories` from the vault (book icon).
+- Players can rename categories, change icons, and edit items by default.
+- Creating/deleting categories requires permissions.
+- Items can belong to multiple categories.
+
 ### ⚙️ Config Highlights
 
 - `diamondCostDepositChest` / `diamondCostWithdrawalChest`
@@ -44,8 +51,20 @@ and withdrawal chests, organized categories, and search to keep a clean, immersi
 - `communityvault.compact` (or op): `/cvaultcompact`
 - `communityvault.status` (or op): `/cvaultstatus`
 - `communityvault.reload` (or op): `/cvaultreload`
+- `communityvault.categories.view`
+- `communityvault.categories.create`
+- `communityvault.categories.rename`
+- `communityvault.categories.icon`
+- `communityvault.categories.additem`
+- `communityvault.categories.removeitem`
+- `communityvault.categories.delete`
 
-Core usage (view, deposit, withdrawal via withdrawal chest) is permission-free by default.
+Defaults:
+- `view`, `rename`, `icon`, `additem`, `removeitem` are **default true**.
+- `create` and `delete` are **default op**.
+
+Core usage (view, deposit, withdrawal via withdrawal chest) is permission-free by default. Server admins
+can change all permissions with their permission plugin (LuckPerms, etc.).
 
 ### 🛠️ Storage & Data
 
@@ -59,6 +78,7 @@ Core usage (view, deposit, withdrawal via withdrawal chest) is permission-free b
 - 🛒 Economy/Vault plugin pricing options.
 - 📚 Audit/history of deposits/withdrawals.
 - 🛠️ Admin restore from backup command.
+- 🗄️ Optional database backend for multi-server/shared vaults.
 
 ### 💬 Final Notes
 

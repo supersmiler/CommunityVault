@@ -17,6 +17,8 @@ import org.niels.communityVault.CommunityVault;
 import org.niels.communityVault.utils.BackupManager;
 import org.niels.communityVault.utils.CategoryConfig;
 import org.niels.communityVault.utils.VaultStorage;
+import org.niels.communityVault.ui.CategoryMenu;
+import org.niels.communityVault.ui.VaultMenuHolder;
 
 import java.util.*;
 import java.util.regex.Matcher;
@@ -34,10 +36,12 @@ public class VaultCommand implements CommandExecutor {
 
     private final Plugin plugin;
     private final CategoryConfig categoryConfig;
+    private final CategoryMenu categoryMenu;
 
-    public VaultCommand(Plugin plugin, CategoryConfig categoryConfig) {
+    public VaultCommand(Plugin plugin, CategoryConfig categoryConfig, CategoryMenu categoryMenu) {
         this.plugin = plugin;
         this.categoryConfig = categoryConfig;
+        this.categoryMenu = categoryMenu;
     }
 
     @Override
@@ -159,7 +163,8 @@ public class VaultCommand implements CommandExecutor {
         int end = Math.min(start + pageSize, items.size());
 
         // Create the inventory for the current page
-        Inventory searchInventory = Bukkit.createInventory(null, 54, "Search: " + searchTerm + " (Page " + page + ") (Search)");
+        Inventory searchInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.SEARCH), 54,
+                "Search: " + searchTerm + " (Page " + page + ")");
 
         // Add items for the current page
         for (int i = start; i < end; i++) {
@@ -195,7 +200,7 @@ public class VaultCommand implements CommandExecutor {
         }
 
         // Check if the player clicked in a category inventory
-        if (title.contains("(Page") && title.contains("(Search)") ) {
+        if (title.contains("(Page")) {
             Pattern pattern = Pattern.compile("\\d+");
             Matcher matcher = pattern.matcher(title);
             int currentPage = 1;
@@ -280,14 +285,16 @@ public class VaultCommand implements CommandExecutor {
 
 
     public void openMainVaultInventory(Player player, boolean isValid) {
+        player.removeMetadata("categoryStacksParent", plugin);
+        player.removeMetadata("categoryStacksParentPage", plugin);
         boolean isSelecting = player.hasMetadata("categorySelect") && player.getMetadata("categorySelect").get(0).asBoolean();
         Inventory mainVaultInventory;
         if(isSelecting)
         {
-            mainVaultInventory = Bukkit.createInventory(null, 54, "Community Vault (Select Category)");
+            mainVaultInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.MAIN_SELECT), 54, "Select Category For Item");
         }
         else {
-            mainVaultInventory = Bukkit.createInventory(null, 54, "Community Vault");
+            mainVaultInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.MAIN), 54, "Community Vault");
         }
 
         // Add categories dynamically from VaultStorage
@@ -329,8 +336,11 @@ public class VaultCommand implements CommandExecutor {
 
         }
         else{
+            if (hasAnyCategoryPermission(player, "communityvault.categories.view")) {
+                mainVaultInventory.setItem(48, createNavigationItem(Material.WRITABLE_BOOK, "Manage Categories"));
+            }
             mainVaultInventory.setItem(49, createNavigationItem(Material.END_CRYSTAL, "All items"));
-            mainVaultInventory.setItem(50, createNavigationItem(Material.TRAPPED_CHEST, "Remaining Items"));
+            mainVaultInventory.setItem(50, createNavigationItem(Material.TRAPPED_CHEST, "Uncategorized Items"));
         }
 
         // Save the player's vault access type (withdrawal allowed or not)
@@ -395,17 +405,33 @@ public class VaultCommand implements CommandExecutor {
             if(clickedItem.getType() == Material.TRAPPED_CHEST)
             {
                 String displayName = clickedItem.getItemMeta().getDisplayName();
-                if(displayName.equals("Remaining Items"))
+                if(displayName.equals("Uncategorized Items"))
                 {
-                    openCategoryInventory(player, "Remaining Items", getRemainingItems());
+                    openCategoryInventory(player, "Uncategorized Items", getRemainingItems());
                     return;
                 }
 
 
             }
+            if (clickedItem.getType() == Material.WRITABLE_BOOK) {
+                String displayName = clickedItem.getItemMeta().getDisplayName();
+                if (displayName.equals("Manage Categories")) {
+                    categoryMenu.openManager(player);
+                    return;
+                }
+            }
             boolean isSelecting = player.hasMetadata("categorySelect") && player.getMetadata("categorySelect").get(0).asBoolean();
             if(isSelecting)
             {
+                boolean canEdit = hasAnyCategoryPermission(player, "communityvault.categories.additem")
+                        || player.hasMetadata("categorySelectUncategorized");
+                if (!canEdit) {
+                    player.sendMessage(ChatColor.RED + "You need communityvault.categories.additem to assign categories.");
+                    player.setMetadata("categorySelect", new FixedMetadataValue(plugin, 0));
+                    player.removeMetadata("categorySelectType", plugin);
+                    player.removeMetadata("categorySelectUncategorized", plugin);
+                    return;
+                }
                 if(player.hasMetadata("categorySelectType"))
                 {
                     String type =  player.getMetadata("categorySelectType").get(0).asString();
@@ -415,10 +441,13 @@ public class VaultCommand implements CommandExecutor {
                         return;
                     }
                     player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Moved item: " + type + " from category: " + VaultStorage.getCategoryKeyByMaterial(Material.getMaterial(type)) + " to: " + categoryKey );
-                    VaultStorage.removeItemFromCategory(oldCategoryKey, Material.getMaterial(type), categoryConfig);
+                    if (oldCategoryKey != null) {
+                        VaultStorage.removeItemFromCategory(oldCategoryKey, Material.getMaterial(type), categoryConfig);
+                    }
                     VaultStorage.addItemToCategory(categoryKey, Material.getMaterial(type), categoryConfig);
                     player.setMetadata("categorySelect", new FixedMetadataValue(plugin, 0));
                     player.removeMetadata("categorySelectType", plugin);
+                    player.removeMetadata("categorySelectUncategorized", plugin);
                     openCategoryInventory(player, categoryKey, VaultStorage.getItemsByCategoryKey(categoryKey).toArray(new ItemStack[0]));
 
                 }
@@ -442,6 +471,61 @@ public class VaultCommand implements CommandExecutor {
         return VaultStorage.getRemainingItems(filteredItems);
     }
 
+    private ItemStack[] getItemsForCategoryName(String categoryName) {
+        if (categoryName.contains("All items")) {
+            return VaultStorage.getItemsByCategory(Material.values());
+        }
+        if (categoryName.contains("Uncategorized Items")) {
+            return getRemainingItems();
+        }
+        String categoryKey = getCategoryKeyByDisplayName(categoryName);
+        if (categoryKey == null) {
+            categoryKey = categoryName;
+        }
+        return VaultStorage.getItemsByCategoryKey(categoryKey).toArray(new ItemStack[0]);
+    }
+
+    private int extractPageFromTitle(String title) {
+        Pattern pattern = Pattern.compile("\\d+");
+        Matcher matcher = pattern.matcher(title);
+        if (matcher.find()) {
+            return Integer.parseInt(matcher.group());
+        }
+        return 1;
+    }
+
+    private String getStacksParentName(Inventory inventory) {
+        if (inventory != null && inventory.getHolder() instanceof VaultMenuHolder) {
+            VaultMenuHolder holder = (VaultMenuHolder) inventory.getHolder();
+            if (holder.getType() == VaultMenuHolder.Type.STACKS) {
+                return holder.getParentName();
+            }
+        }
+        return null;
+    }
+
+    private int getStacksParentPage(Inventory inventory) {
+        if (inventory != null && inventory.getHolder() instanceof VaultMenuHolder) {
+            VaultMenuHolder holder = (VaultMenuHolder) inventory.getHolder();
+            if (holder.getType() == VaultMenuHolder.Type.STACKS) {
+                return holder.getParentPage();
+            }
+        }
+        return 1;
+    }
+
+    private boolean hasAnyCategoryPermission(Player player, String... permissions) {
+        if (player.isOp() || player.hasPermission("communityvault.categories")) {
+            return true;
+        }
+        for (String permission : permissions) {
+            if (player.hasPermission(permission)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Helper method to get the category key based on its display name
     private String getCategoryKeyByDisplayName(String displayName) {
         for (String key : VaultStorage.getCategoryKeys()) {
@@ -454,13 +538,15 @@ public class VaultCommand implements CommandExecutor {
 
     // Open a category inventory with pagination
     public void openCategoryInventory(Player player, String categoryName, ItemStack[] items) {
+        player.removeMetadata("categoryStacksParent", plugin);
+        player.removeMetadata("categoryStacksParentPage", plugin);
         openCategoryInventoryPage(player, categoryName, items, 1); // Start from page 1
     }
 
     public void openCategoryInventoryPage(Player player, String categoryName, ItemStack[] items, int page) {
         // Sort items alphabetically by Material name
         Arrays.sort(items, Comparator.comparing(itemStack -> itemStack.getType().name()));
-        Inventory categoryInventory = Bukkit.createInventory(null, 54, categoryName + " (Page " + page + ")");
+        Inventory categoryInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.CATEGORY), 54, categoryName + " (Page " + page + ")");
 
         Map<Material, Integer> materialCountMap = new HashMap<>();
 
@@ -525,7 +611,14 @@ public class VaultCommand implements CommandExecutor {
         }
         else
         {
-            categoryInventory.setItem(52, createNavigationItem(Material.EMERALD, "Select Category"));
+            if (categoryName.equals("Uncategorized Items")) {
+                categoryInventory.setItem(52, createNavigationItem(Material.EMERALD, "Assign Category"));
+            } else if (!categoryName.equals("All items")) {
+                if (hasAnyCategoryPermission(player, "communityvault.categories.additem")) {
+                    categoryInventory.setItem(51, createNavigationItem(Material.EMERALD, "Add To Category"));
+                }
+                categoryInventory.setItem(52, createNavigationItem(Material.RED_DYE, "Remove From Category"));
+            }
         }
         // Add category select button
 
@@ -570,7 +663,7 @@ public class VaultCommand implements CommandExecutor {
 
             if (clickedItem != null && (clickedItem.getType() == Material.ARROW || clickedItem.getType() == Material.EMERALD || clickedItem.getType() == Material.RED_DYE)) {
                 String displayName = (clickedItem.getItemMeta() != null && clickedItem.getItemMeta().hasDisplayName()) ? clickedItem.getItemMeta().getDisplayName() : "";
-                if(!"Next Page".equals(displayName) && !"Previous Page".equals(displayName) && !"Select Category".equals(displayName) && !"Stop Selecting".equals(displayName) && clickedItem.getType() != Material.AIR && (player.hasMetadata("categorySelect") && player.getMetadata("categorySelect").get(0).asBoolean()) )
+                if(!"Next Page".equals(displayName) && !"Previous Page".equals(displayName) && !"Assign Category".equals(displayName) && !"Stop Selecting".equals(displayName) && !"Remove From Category".equals(displayName) && !"Add To Category".equals(displayName) && clickedItem.getType() != Material.AIR && (player.hasMetadata("categorySelect") && player.getMetadata("categorySelect").get(0).asBoolean()) )
                 {
                     String itemType = clickedItem.getType().toString();
 
@@ -578,9 +671,13 @@ public class VaultCommand implements CommandExecutor {
                     boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
                     openMainVaultInventory(player, canWithdraw);
                 }
-                else if (!"Next Page".equals(displayName) && !"Previous Page".equals(displayName) && !"Select Category".equals(displayName) && !"Stop Selecting".equals(displayName) && clickedItem.getType() != Material.AIR) {
+                else if (!"Next Page".equals(displayName) && !"Previous Page".equals(displayName) && !"Assign Category".equals(displayName) && !"Stop Selecting".equals(displayName) && !"Remove From Category".equals(displayName) && !"Add To Category".equals(displayName) && clickedItem.getType() != Material.AIR) {
                     Material clickedMaterial = clickedItem.getType();
-                    openMaterialStacksInventory(player, clickedMaterial); // Open material stacks
+                    String categoryName = title.split(" \\(Page")[0];
+                    int parentPage = extractPageFromTitle(title);
+                    player.setMetadata("categoryStacksParent", new FixedMetadataValue(plugin, categoryName));
+                    player.setMetadata("categoryStacksParentPage", new FixedMetadataValue(plugin, parentPage));
+                    openMaterialStacksInventory(player, clickedMaterial, categoryName, parentPage); // Open material stacks
                 }
 
             }
@@ -596,20 +693,7 @@ public class VaultCommand implements CommandExecutor {
                 if (matcher.find()) {
                     currentPage = Integer.parseInt(matcher.group());
                 }
-                ItemStack[] items = null;
-                if(categoryName.contains("All items"))
-                {
-                    items = VaultStorage.getItemsByCategory(Material.values());
-                }
-                else if(categoryName.contains("Remaining Items"))
-                {
-                    items = getRemainingItems();
-                }
-                else
-                {
-                    //player.sendMessage("cpage"+ Integer.toString(currentPage));
-                     items = VaultStorage.getItemsByCategoryKey(categoryName).toArray(new ItemStack[0]);
-                }
+                ItemStack[] items = getItemsForCategoryName(categoryName);
 
 
 
@@ -634,18 +718,10 @@ public class VaultCommand implements CommandExecutor {
                 }
             } else if (clickedItem != null && clickedItem.getType() == Material.BARRIER && clickedItem.getItemMeta() != null && "Back".equals(clickedItem.getItemMeta().getDisplayName())) {
                 // Back button
+                player.removeMetadata("categorySelectUncategorized", plugin);
+                player.removeMetadata("categoryRemoveTarget", plugin);
                 boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
-                openMainVaultInventory(player, canWithdraw);
-            }
-            else if(clickedItem != null && clickedItem.getType() == Material.EMERALD)
-            {
-                String displayName = clickedItem.getItemMeta().getDisplayName();
-                if(displayName.equals("Select Category"))
-                {
-                    player.setMetadata("categorySelect", new FixedMetadataValue(plugin, 1));
-                    ItemStack categorySelectInProgress = createCategoryItem(Material.RED_DYE, "Stop Selecting");
-                    event.getInventory().setItem(52, categorySelectInProgress);
-                }
+                Bukkit.getScheduler().runTask(plugin, () -> openMainVaultInventory(player, canWithdraw));
             }
             else if(clickedItem != null && clickedItem.getType() == Material.RED_DYE)
             {
@@ -654,13 +730,63 @@ public class VaultCommand implements CommandExecutor {
                 {
                     player.setMetadata("categorySelect", new FixedMetadataValue(plugin, 0));
                     player.removeMetadata("categorySelectType", plugin);
-                    ItemStack categorySelectInProgress = createCategoryItem(Material.EMERALD, "Select Category");
+                    player.removeMetadata("categorySelectUncategorized", plugin);
+                    ItemStack categorySelectInProgress = createCategoryItem(Material.EMERALD, "Assign Category");
                     event.getInventory().setItem(52, categorySelectInProgress);
+                }
+                if(displayName.equals("Remove From Category"))
+                {
+                    if (!hasAnyCategoryPermission(player, "communityvault.categories.removeitem")) {
+                        player.sendMessage(ChatColor.RED + "You need communityvault.categories.removeitem to remove items from categories.");
+                        return;
+                    }
+                    String categoryName = title.split(" \\(Page")[0];
+                    String categoryKey = getCategoryKeyByDisplayName(categoryName);
+                    if (categoryKey == null) {
+                        categoryKey = categoryName;
+                    }
+                    if (categoryKey != null) {
+                        player.setMetadata("categoryRemoveTarget", new FixedMetadataValue(plugin, categoryKey));
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.YELLOW + "Click an item to remove it from this category.");
+                    }
+                }
+            }
+            else if(clickedItem != null && clickedItem.getType() == Material.EMERALD)
+            {
+                String displayName = clickedItem.getItemMeta().getDisplayName();
+                if(displayName.equals("Assign Category"))
+                {
+                    player.setMetadata("categorySelect", new FixedMetadataValue(plugin, 1));
+                    player.setMetadata("categorySelectUncategorized", new FixedMetadataValue(plugin, 1));
+                    ItemStack categorySelectInProgress = createCategoryItem(Material.RED_DYE, "Stop Selecting");
+                    event.getInventory().setItem(52, categorySelectInProgress);
+                }
+                if(displayName.equals("Add To Category"))
+                {
+                    if (!hasAnyCategoryPermission(player, "communityvault.categories.additem")) {
+                        player.sendMessage(ChatColor.RED + "You need communityvault.categories.additem to add items.");
+                        return;
+                    }
+                    String categoryName = title.split(" \\(Page")[0];
+                    String categoryKey = getCategoryKeyByDisplayName(categoryName);
+                    if (categoryKey == null) {
+                        categoryKey = categoryName;
+                    }
+                    categoryMenu.openAddItemsForCategory(player, categoryKey);
                 }
             }
             //If categoryselect is enabled and item is clicked
             else if(clickedItem != null && clickedItem.getType() != Material.AIR && (player.hasMetadata("categorySelect") && player.getMetadata("categorySelect").get(0).asBoolean()))
             {
+                boolean canEdit = hasAnyCategoryPermission(player, "communityvault.categories.additem")
+                        || player.hasMetadata("categorySelectUncategorized");
+                if (!canEdit) {
+                    player.sendMessage(ChatColor.RED + "You need communityvault.categories.additem to assign categories.");
+                    player.setMetadata("categorySelect", new FixedMetadataValue(plugin, 0));
+                    player.removeMetadata("categorySelectType", plugin);
+                    player.removeMetadata("categorySelectUncategorized", plugin);
+                    return;
+                }
                 String itemType = clickedItem.getType().toString();
 
                 player.setMetadata("categorySelectType", new FixedMetadataValue(plugin, itemType));
@@ -668,18 +794,42 @@ public class VaultCommand implements CommandExecutor {
                 openMainVaultInventory(player, canWithdraw);
             }
             else if (clickedItem != null && clickedItem.getType() != Material.AIR) {
+                if (player.hasMetadata("categoryRemoveTarget")) {
+                    if (!hasAnyCategoryPermission(player, "communityvault.categories.removeitem")) {
+                        player.sendMessage(ChatColor.RED + "You need communityvault.categories.removeitem to remove items.");
+                        player.removeMetadata("categoryRemoveTarget", plugin);
+                        return;
+                    }
+                    String categoryKey = player.getMetadata("categoryRemoveTarget").get(0).asString();
+                    if (VaultStorage.removeItemFromCategory(categoryKey, clickedItem.getType(), categoryConfig)) {
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Removed " + clickedItem.getType() + " from category.");
+                    }
+                    player.removeMetadata("categoryRemoveTarget", plugin);
+                    String categoryName = title.split(" \\(Page")[0];
+                    ItemStack[] items = VaultStorage.getItemsByCategoryKey(categoryName).toArray(new ItemStack[0]);
+                    openCategoryInventoryPage(player, categoryName, items, extractPageFromTitle(title));
+                    return;
+                }
                 Material clickedMaterial = clickedItem.getType();
-                openMaterialStacksInventory(player, clickedMaterial); // Open material stacks
+                String categoryName = title.split(" \\(Page")[0];
+                int parentPage = extractPageFromTitle(title);
+                player.setMetadata("categoryStacksParent", new FixedMetadataValue(plugin, categoryName));
+                player.setMetadata("categoryStacksParentPage", new FixedMetadataValue(plugin, parentPage));
+                openMaterialStacksInventory(player, clickedMaterial, categoryName, parentPage); // Open material stacks
             }
         }
     }
 
     // Open a new inventory showing all stacks of a specific material
     public void openMaterialStacksInventory(Player player, Material material) {
-        openMaterialStacksInventoryPage(player, material, 1);
+        openMaterialStacksInventoryPage(player, material, 1, null, 1);
     }
 
-    public void openMaterialStacksInventoryPage(Player player, Material material, int page) {
+    public void openMaterialStacksInventory(Player player, Material material, String parentName, int parentPage) {
+        openMaterialStacksInventoryPage(player, material, 1, parentName, parentPage);
+    }
+
+    public void openMaterialStacksInventoryPage(Player player, Material material, int page, String parentName, int parentPage) {
         List<ItemStack> materialStacks = VaultStorage.getItemsByMaterial(material);
         // Check if there are any items to display
         if (materialStacks.isEmpty()) {
@@ -697,7 +847,10 @@ public class VaultCommand implements CommandExecutor {
         int end = Math.min(start + pageSize, materialStacks.size());
 
         // Create the inventory for the current page
-        Inventory materialInventory = Bukkit.createInventory(null, 54, material.name() + " (Page " + page + ") (Stacks)");
+        Inventory materialInventory = Bukkit.createInventory(
+                new VaultMenuHolder(VaultMenuHolder.Type.STACKS, parentName, parentPage, material.name()),
+                54,
+                material.name() + " (Page " + page + ")");
 
         // Add the stacks of the current material to the inventory
         for (int i = start; i < end; i++) {
@@ -741,6 +894,15 @@ public class VaultCommand implements CommandExecutor {
             if (clickedItem != null && clickedItem.getType() == Material.BARRIER && clickedItem.getItemMeta() != null && "Back".equals(clickedItem.getItemMeta().getDisplayName())) {
                 // Back button
                 event.setCancelled(false);
+                String parentName = getStacksParentName(event.getInventory());
+                int parentPage = getStacksParentPage(event.getInventory());
+                if (parentName != null) {
+                    ItemStack[] items = getItemsForCategoryName(parentName);
+                    player.removeMetadata("categoryStacksParent", plugin);
+                    player.removeMetadata("categoryStacksParentPage", plugin);
+                    openCategoryInventoryPage(player, parentName, items, parentPage);
+                    return;
+                }
                 boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
                 openMainVaultInventory(player, canWithdraw);
                 return;
@@ -749,13 +911,16 @@ public class VaultCommand implements CommandExecutor {
 
             if (clickedItem != null && clickedItem.getType() == Material.ARROW && clickedItem.getItemMeta() != null && clickedItem.getItemMeta().hasDisplayName()) {
                 // Determine if it's "Next Page" or "Previous Page"
-                String categoryName = title.split(" \\(Page")[0]; // Extract category name
                 if (clickedItem.getItemMeta() != null) {
                     String displayName = clickedItem.getItemMeta().getDisplayName();
                     if (displayName.equals("Next Page")) {
-                        openMaterialStacksInventoryPage(player, event.getInventory().getItem(0).getType(), currentPage + 1);
+                        openMaterialStacksInventoryPage(player, event.getInventory().getItem(0).getType(), currentPage + 1,
+                                getStacksParentName(event.getInventory()),
+                                getStacksParentPage(event.getInventory()));
                     } else if (displayName.equals("Previous Page")) {
-                        openMaterialStacksInventoryPage(player, event.getInventory().getItem(0).getType(), currentPage - 1);
+                        openMaterialStacksInventoryPage(player, event.getInventory().getItem(0).getType(), currentPage - 1,
+                                getStacksParentName(event.getInventory()),
+                                getStacksParentPage(event.getInventory()));
                     }
                 }
             }
@@ -805,7 +970,9 @@ public class VaultCommand implements CommandExecutor {
 
                 // Cancel the event and refresh the vault page
                 event.setCancelled(true);
-                openMaterialStacksInventoryPage(player, event.getInventory().getItem(0).getType(), currentPage);
+                openMaterialStacksInventoryPage(player, event.getInventory().getItem(0).getType(), currentPage,
+                        getStacksParentName(event.getInventory()),
+                        getStacksParentPage(event.getInventory()));
             } else {
                 event.setCancelled(true); // Prevent withdrawal in view-only mode
                 player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.RED + "You cannot withdraw items from the vault.");

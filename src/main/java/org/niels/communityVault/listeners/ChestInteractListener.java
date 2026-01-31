@@ -27,6 +27,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 import org.niels.communityVault.commands.VaultCommand;
 import org.niels.communityVault.CommunityVault;
+import org.niels.communityVault.ui.VaultMenuHolder;
 import org.niels.communityVault.utils.VaultStorage;
 
 import java.io.File;
@@ -319,42 +320,55 @@ public class ChestInteractListener implements Listener {
         String title = event.getView().getTitle();
         //player.sendMessage(event.getAction().toString());
 
+        VaultMenuHolder holder = event.getView().getTopInventory().getHolder() instanceof VaultMenuHolder
+                ? (VaultMenuHolder) event.getView().getTopInventory().getHolder() : null;
+        if (holder != null) {
+            switch (holder.getType()) {
+                case MAIN:
+                case MAIN_SELECT:
+                case CATEGORY:
+                case STACKS:
+                case SEARCH:
+                    break;
+                default:
+                    return;
+            }
+        }
+
         // Cancel shift-clicking or double-clicking entirely
-        if ((event.isShiftClick()) &&
-                (title.contains("Community Vault") || title.contains("(Page") || title.contains("(Stacks)"))) {
+        if ((event.isShiftClick()) && holder != null) {
             event.setCancelled(true); // Prevent shift-clicking and double-clicking
             player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.YELLOW + "Shift-clicking and double-clicking are disabled in the Community Vault.");
             return;
         }
 
         // Cancel clicking in the player's own inventory (lower half of the screen)
-        if (event.getClickedInventory() != null && event.getClickedInventory().equals(player.getInventory()) &&
-                (title.equalsIgnoreCase("Community Vault") || title.contains("(Page") || title.contains("(Stacks)"))) {
+        if (event.getClickedInventory() != null && event.getClickedInventory().equals(player.getInventory()) && holder != null) {
             event.setCancelled(true); // Prevent interacting with own inventory
             player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.YELLOW + "You cannot move items in your inventory while in the Community Vault.");
             return;
         }
 
         // Handle valid chest interactions (allow picking from withdrawal chest)
-        if (title.equalsIgnoreCase("Community Vault") || title.equalsIgnoreCase("Community Vault (Select Category)")) {
+        if (holder != null && (holder.getType() == VaultMenuHolder.Type.MAIN || holder.getType() == VaultMenuHolder.Type.MAIN_SELECT)) {
             boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
             vaultCommand.handleMainVaultClick(event, canWithdraw); // Allow item withdrawal if accessed via withdrawal chest
         }
 
         // Handle category inventory clicks (pagination)
-        if (title.contains("(Page") && !title.contains("(Stacks)") && !title.contains("(Search)")) {
+        if (holder != null && holder.getType() == VaultMenuHolder.Type.CATEGORY) {
             boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
             vaultCommand.handleCategoryClick(event, canWithdraw); // Allow item withdrawal if accessed via withdrawal chest
         }
 
         // Handle category inventory clicks (pagination)
-        if (title.contains("(Page") && title.contains("(Stacks)")) {
+        if (holder != null && holder.getType() == VaultMenuHolder.Type.STACKS) {
             boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
             vaultCommand.handleStacksClick(event, canWithdraw); // Allow item withdrawal if accessed via withdrawal chest
         }
 
         // Handle category inventory clicks (pagination)
-        if (title.contains("(Page") && title.contains("(Search)")) {
+        if (holder != null && holder.getType() == VaultMenuHolder.Type.SEARCH) {
                 Block block = getTargetBlock(player, 5);
 
                 if(block != null && block.getType() != Material.AIR)
@@ -414,6 +428,16 @@ public class ChestInteractListener implements Listener {
         // Get the inventory that was closed
         Inventory inventory = event.getInventory();
         Player player = (Player) event.getPlayer();
+        String title = event.getView().getTitle();
+
+        VaultMenuHolder holder = event.getView().getTopInventory().getHolder() instanceof VaultMenuHolder
+                ? (VaultMenuHolder) event.getView().getTopInventory().getHolder() : null;
+        if (holder != null) {
+            player.removeMetadata("categorySelect", plugin);
+            player.removeMetadata("categorySelectType", plugin);
+            player.removeMetadata("categorySelectUncategorized", plugin);
+            player.removeMetadata("categoryRemoveTarget", plugin);
+        }
 
         // Check if the inventory holder is a Chest
         Inventory topInventory = event.getView().getTopInventory();
