@@ -79,9 +79,27 @@ public class VaultCommand implements CommandExecutor {
             }
             String saveVaultTask = CommunityVault.saveVault != null && CommunityVault.saveVault.isSync() ? "running" : "unknown";
             String saveChestsTask = CommunityVault.saveChests != null && CommunityVault.saveChests.isSync() ? "running" : "unknown";
+            boolean capacityEnabled = CommunityVault.configManager.getBoolean("maxVaultCapacityEnabled");
+            int maxCapacity = CommunityVault.configManager.getInt("maxVaultCapacity");
             player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Stacks: " + totalStacks + ", Items: " + totalItems + ", Categories: " + categories);
             player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Last backup: " + backupInfo);
             player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Saves - vault: " + saveVaultTask + ", chests: " + saveChestsTask);
+            if (capacityEnabled) {
+                player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Capacity: enabled, max " + maxCapacity);
+            } else {
+                player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Capacity: disabled");
+            }
+            return true;
+        }
+        if (label.equalsIgnoreCase("cvaultreload")) {
+            if (!player.isOp() && !player.hasPermission("communityvault.reload")) {
+                player.sendMessage(ChatColor.RED + "You do not have permission to reload.");
+                return true;
+            }
+            CommunityVault.configManager.reloadConfig();
+            categoryConfig.reloadConfig();
+            VaultStorage.loadCategories(categoryConfig);
+            player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Configuration reloaded.");
             return true;
         }
 

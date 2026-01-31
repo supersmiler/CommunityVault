@@ -9,6 +9,8 @@ import org.bukkit.block.Chest;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.block.DoubleChest;
+import org.bukkit.inventory.DoubleChestInventory;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
@@ -16,12 +18,15 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
 import org.niels.communityVault.commands.VaultCommand;
+import org.niels.communityVault.CommunityVault;
 import org.niels.communityVault.utils.VaultStorage;
 
 import java.io.File;
@@ -130,6 +135,90 @@ public class ChestInteractListener implements Listener {
     }
 
 
+    private boolean isRegisteredDepositChest(Location location) {
+        if (validDepositChests.contains(location)) return true;
+        
+        Block block = location.getBlock();
+        if (block.getType() == Material.CHEST) {
+            Chest chest = (Chest) block.getState();
+            Inventory inventory = chest.getInventory();
+            if (inventory instanceof DoubleChestInventory) {
+                DoubleChest doubleChest = (DoubleChest) inventory.getHolder();
+                if (doubleChest != null) {
+                    Location leftLoc = ((Chest) doubleChest.getLeftSide()).getBlock().getLocation();
+                    Location rightLoc = ((Chest) doubleChest.getRightSide()).getBlock().getLocation();
+                    return validDepositChests.contains(leftLoc) || validDepositChests.contains(rightLoc);
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isRegisteredWithdrawalChest(Location location) {
+        if (validWithdrawalChests.contains(location)) return true;
+
+        Block block = location.getBlock();
+        if (block.getType() == Material.CHEST) {
+            Chest chest = (Chest) block.getState();
+            Inventory inventory = chest.getInventory();
+            if (inventory instanceof DoubleChestInventory) {
+                DoubleChest doubleChest = (DoubleChest) inventory.getHolder();
+                if (doubleChest != null) {
+                    Location leftLoc = ((Chest) doubleChest.getLeftSide()).getBlock().getLocation();
+                    Location rightLoc = ((Chest) doubleChest.getRightSide()).getBlock().getLocation();
+                    return validWithdrawalChests.contains(leftLoc) || validWithdrawalChests.contains(rightLoc);
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isRegisteredDepositHolder(Inventory inventory) {
+        if (inventory == null) {
+            return false;
+        }
+        if (inventory.getHolder() instanceof Chest) {
+            Chest chest = (Chest) inventory.getHolder();
+            return isRegisteredDepositChest(chest.getBlock().getLocation());
+        }
+        if (inventory instanceof DoubleChestInventory) {
+            DoubleChest doubleChest = (DoubleChest) inventory.getHolder();
+            if (doubleChest == null) {
+                return false;
+            }
+            Location leftLoc = ((Chest) doubleChest.getLeftSide()).getBlock().getLocation();
+            Location rightLoc = ((Chest) doubleChest.getRightSide()).getBlock().getLocation();
+            return validDepositChests.contains(leftLoc) || validDepositChests.contains(rightLoc);
+        }
+        return false;
+    }
+
+    private Location getRegisteredDepositLocation(Inventory inventory) {
+        if (inventory == null) {
+            return null;
+        }
+        if (inventory.getHolder() instanceof Chest) {
+            Chest chest = (Chest) inventory.getHolder();
+            Location loc = chest.getBlock().getLocation();
+            return isRegisteredDepositChest(loc) ? loc : null;
+        }
+        if (inventory instanceof DoubleChestInventory) {
+            DoubleChest doubleChest = (DoubleChest) inventory.getHolder();
+            if (doubleChest == null) {
+                return null;
+            }
+            Location leftLoc = ((Chest) doubleChest.getLeftSide()).getBlock().getLocation();
+            if (validDepositChests.contains(leftLoc)) {
+                return leftLoc;
+            }
+            Location rightLoc = ((Chest) doubleChest.getRightSide()).getBlock().getLocation();
+            if (validDepositChests.contains(rightLoc)) {
+                return rightLoc;
+            }
+        }
+        return null;
+    }
+
     @EventHandler
     public void onBlockPlace(BlockPlaceEvent event) {
         Block block = event.getBlock();
@@ -138,22 +227,75 @@ public class ChestInteractListener implements Listener {
         if (block.getType() == Material.CHEST) {
             Chest chest = (Chest) block.getState();
             ItemStack chestItem = event.getItemInHand();
+            boolean isDepositChestItem = false;
+            boolean isWithdrawalChestItem = false;
 
             if (chestItem.hasItemMeta()) {
                 ItemMeta meta = chestItem.getItemMeta();
-                if(meta.getLore() != null)
-                {
-                    // Check if it's a Withdrawal Chest
-                    if (meta.hasLore() && meta.getLore().toString().contains("WithdrawalChest")) {
-                        validWithdrawalChests.add(block.getLocation()); // Mark the chest as a valid withdrawal chest
-                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Withdrawal Chest placed!");
-                    }
-                    // Check if it's a Deposit Chest
-                    if (meta.hasLore() && meta.getLore().toString().contains("DepositChest")) {
-                        validDepositChests.add(block.getLocation()); // Mark the chest as a valid deposit chest
-                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Deposit Chest placed!");
-                    }
+                if (meta != null && meta.hasLore()) {
+                    String lore = meta.getLore().toString();
+                    isDepositChestItem = lore.contains("DepositChest");
+                    isWithdrawalChestItem = lore.contains("WithdrawalChest");
                 }
+            }
+
+            boolean adjacentDeposit = false;
+            boolean adjacentNonDeposit = false;
+            boolean adjacentWithdrawal = false;
+            boolean adjacentNonWithdrawal = false;
+            Block[] adjacentBlocks = new Block[] {
+                    block.getRelative(1, 0, 0),
+                    block.getRelative(-1, 0, 0),
+                    block.getRelative(0, 0, 1),
+                    block.getRelative(0, 0, -1)
+            };
+            for (Block adjacent : adjacentBlocks) {
+                if (adjacent.getType() != Material.CHEST) {
+                    continue;
+                }
+                if (isRegisteredDepositChest(adjacent.getLocation())) {
+                    adjacentDeposit = true;
+                } else {
+                    adjacentNonDeposit = true;
+                }
+                if (isRegisteredWithdrawalChest(adjacent.getLocation())) {
+                    adjacentWithdrawal = true;
+                } else {
+                    adjacentNonWithdrawal = true;
+                }
+            }
+
+            if (isDepositChestItem && adjacentNonDeposit) {
+                event.setCancelled(true);
+                player.sendMessage(ChatColor.RED + "Deposit chests can only pair with other deposit chests.");
+                return;
+            }
+
+            if (!isDepositChestItem && adjacentDeposit) {
+                event.setCancelled(true);
+                player.sendMessage(ChatColor.RED + "You must place a deposit chest to expand a deposit chest.");
+                return;
+            }
+
+            if (isWithdrawalChestItem && adjacentNonWithdrawal) {
+                event.setCancelled(true);
+                player.sendMessage(ChatColor.RED + "Withdrawal chests can only pair with other withdrawal chests.");
+                return;
+            }
+
+            if (!isWithdrawalChestItem && adjacentWithdrawal) {
+                event.setCancelled(true);
+                player.sendMessage(ChatColor.RED + "You must place a withdrawal chest to expand a withdrawal chest.");
+                return;
+            }
+
+            if (isWithdrawalChestItem) {
+                validWithdrawalChests.add(block.getLocation()); // Mark the chest as a valid withdrawal chest
+                player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Withdrawal Chest placed!");
+            }
+            if (isDepositChestItem) {
+                validDepositChests.add(block.getLocation()); // Mark the chest as a valid deposit chest
+                player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Deposit Chest placed!");
             }
         }
     }
@@ -163,7 +305,7 @@ public class ChestInteractListener implements Listener {
         Block block = event.getBlock();
         Location loc = block.getLocation();
 
-        if (validWithdrawalChests.contains(loc) || validDepositChests.contains(loc)) {
+        if (isRegisteredWithdrawalChest(loc) || isRegisteredDepositChest(loc)) {
             event.setDropItems(false); // Prevent the chest from dropping an item
             validWithdrawalChests.remove(loc);
             validDepositChests.remove(loc);
@@ -218,7 +360,7 @@ public class ChestInteractListener implements Listener {
                 if(block != null && block.getType() != Material.AIR)
                 {
                     Location chestLocation = getTargetBlock(player, 5).getLocation();
-                    if (validWithdrawalChests.contains(chestLocation)) {
+                    if (isRegisteredWithdrawalChest(chestLocation)) {
                         vaultCommand.handleSearchClick(event, true); // Allow item withdrawal if accessed via withdrawal chest
                     }
                     else
@@ -253,12 +395,12 @@ public class ChestInteractListener implements Listener {
                 Chest chest = (Chest) event.getClickedBlock().getState();
                 Location chestLocation = chest.getBlock().getLocation();
                 Player player = event.getPlayer();
-                if (validWithdrawalChests.contains(chestLocation)) {
+                if (isRegisteredWithdrawalChest(chestLocation)) {
                     //player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Withdrawal Chest.");
                     // Handle withdrawal logic (open inventory, allow item withdrawal, etc.)
                     event.setCancelled(true);
                     vaultCommand.openMainVaultInventory(player, true);
-                } else if (validDepositChests.contains(chestLocation)) {
+                } else if (isRegisteredDepositChest(chestLocation)) {
                     //player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA +  "Deposit Chest.");
                     //event.getPlayer().sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Items placed here will be sent to the community vault.");
                     // Handle deposit logic (move items from chest to vault, etc.)
@@ -274,28 +416,100 @@ public class ChestInteractListener implements Listener {
         Player player = (Player) event.getPlayer();
 
         // Check if the inventory holder is a Chest
-        if (event.getView().getTopInventory().getHolder() instanceof Chest) {
-            Chest chest = (Chest) event.getView().getTopInventory().getHolder();
-            Location chestLocation = chest.getBlock().getLocation();
-
-
-
-            // Check if it's a Deposit Chest
-            if (validDepositChests.contains(chestLocation)) {
+        Inventory topInventory = event.getView().getTopInventory();
+        if (topInventory.getHolder() instanceof Chest || topInventory instanceof DoubleChestInventory) {
+            Location registeredDeposit = getRegisteredDepositLocation(topInventory);
+            if (registeredDeposit != null) {
                 // Move items to the vault
-                for (ItemStack item : inventory.getContents()) {
+                int totalItems = 0;
+                int totalAdded = 0;
+                for (int i = 0; i < inventory.getSize(); i++) {
+                    ItemStack item = inventory.getItem(i);
                     if (item != null && item.getType() != Material.AIR) {
-                        VaultStorage.addItemToVault(item); // Add item to vault
-                        inventory.remove(item); // Remove item from the chest
+                        totalItems += item.getAmount();
+                        int added = VaultStorage.addItemToVault(item); // Add item to vault
+                        totalAdded += added;
+                        if (added >= item.getAmount()) {
+                            inventory.setItem(i, null); // Remove item from the chest
+                        } else if (added > 0) {
+                            item.setAmount(item.getAmount() - added);
+                        }
                     }
                 }
-                player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Items Deposited!");
+                if (totalItems > 0) {
+                    boolean limitEnabled = CommunityVault.configManager.getBoolean("maxVaultCapacityEnabled");
+                    if (limitEnabled && totalAdded < totalItems) {
+                        if (totalAdded == 0) {
+                            player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.RED + "Vault is full. No items were deposited.");
+                        } else {
+                            player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.YELLOW +
+                                    "Vault is full. Deposited " + totalAdded + "/" + totalItems + " items.");
+                        }
+                    } else {
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Items Deposited!");
+                    }
+                }
             }
 
             // Optional: You could handle withdrawal logic for withdrawal chests similarly
             // Example:
-            if (validWithdrawalChests.contains(chestLocation)) {
-                // Additional logic if needed for Withdrawal Chests
+            if (topInventory.getHolder() instanceof Chest) {
+                Chest chest = (Chest) topInventory.getHolder();
+                Location chestLocation = chest.getBlock().getLocation();
+                if (isRegisteredWithdrawalChest(chestLocation)) {
+                    // Additional logic if needed for Withdrawal Chests
+                }
+            } else if (topInventory instanceof DoubleChestInventory) {
+                DoubleChest doubleChest = (DoubleChest) topInventory.getHolder();
+                if (doubleChest != null) {
+                    Location leftLoc = ((Chest) doubleChest.getLeftSide()).getBlock().getLocation();
+                    Location rightLoc = ((Chest) doubleChest.getRightSide()).getBlock().getLocation();
+                    if (validWithdrawalChests.contains(leftLoc) || validWithdrawalChests.contains(rightLoc)) {
+                        // Additional logic if needed for Withdrawal Chests
+                    }
+                }
+            }
+        }
+    }
+
+    @EventHandler
+    public void onInventoryMoveItem(InventoryMoveItemEvent event) {
+        // Check if the source inventory is a hopper
+        if (event.getSource().getType() != InventoryType.HOPPER) {
+            return;
+        }
+
+        Inventory destination = event.getDestination();
+        if (destination == null) {
+            return;
+        }
+
+        if (destination.getHolder() instanceof Chest || destination instanceof DoubleChestInventory) {
+            if (!isRegisteredDepositHolder(destination)) {
+                return;
+            }
+
+            ItemStack item = event.getItem();
+            if (item != null && item.getType() != Material.AIR) {
+                boolean limitEnabled = CommunityVault.configManager.getBoolean("maxVaultCapacityEnabled");
+                if (limitEnabled) {
+                    int maxCapacity = CommunityVault.configManager.getInt("maxVaultCapacity");
+                    int currentTotal = VaultStorage.getTotalItemCount();
+                    if (currentTotal + item.getAmount() > maxCapacity) {
+                        event.setCancelled(true);
+                        return;
+                    }
+                }
+
+                int added = VaultStorage.addItemToVault(item);
+
+                if (added >= item.getAmount()) {
+                    // Clear the item from the event so it doesn't move to the chest
+                    event.setItem(new ItemStack(Material.AIR));
+                } else {
+                    // Nothing added, cancel move to avoid item entering the chest
+                    event.setCancelled(true);
+                }
             }
         }
     }

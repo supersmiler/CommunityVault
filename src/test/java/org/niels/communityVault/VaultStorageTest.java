@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.niels.communityVault.utils.VaultStorage;
 import org.niels.communityVault.commands.VaultCommand;
 import org.niels.communityVault.utils.CategoryConfig;
+import org.niels.communityVault.utils.ConfigManager;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.entity.Player;
@@ -29,7 +30,9 @@ class VaultStorageTest {
 
     @BeforeAll
     static void setUpMockServer() {
+        System.setProperty("org.mockbukkit.running", "true");
         MockBukkit.mock();
+        MockBukkit.load(CommunityVault.class);
     }
 
     @AfterAll
@@ -37,9 +40,44 @@ class VaultStorageTest {
         MockBukkit.unmock();
     }
 
+    @Test
+    void addItemToVaultRespectsCapacity() {
+        VaultStorage.clearVault();
+        // Set a small capacity for testing
+        CommunityVault.configManager.setBoolean("maxVaultCapacityEnabled", true);
+        CommunityVault.configManager.setInt("maxVaultCapacity", 100);
+        
+        int added1 = VaultStorage.addItemToVault(new ItemStack(Material.ARROW, 60));
+        assertEquals(60, added1, "Should add all 60 arrows");
+        
+        int added2 = VaultStorage.addItemToVault(new ItemStack(Material.ARROW, 60));
+        assertEquals(40, added2, "Should only add 40 arrows due to capacity");
+        
+        assertEquals(100, VaultStorage.getTotalItemCount(), "Total vault count should be capped at 100");
+        
+        int added3 = VaultStorage.addItemToVault(new ItemStack(Material.IRON_INGOT, 10));
+        assertEquals(0, added3, "Should not add any more items when at capacity");
+    }
+
+    @Test
+    void addItemToVaultIgnoresCapacityWhenDisabled() {
+        VaultStorage.clearVault();
+        CommunityVault.configManager.setBoolean("maxVaultCapacityEnabled", false);
+        CommunityVault.configManager.setInt("maxVaultCapacity", 10);
+
+        int added = VaultStorage.addItemToVault(new ItemStack(Material.ARROW, 64));
+        assertEquals(64, added, "Should add all items when capacity is disabled");
+        assertEquals(64, VaultStorage.getTotalItemCount(), "Total vault count should exceed the limit when disabled");
+    }
+
     @AfterEach
     void tearDown() {
         VaultStorage.clearVault();
+        // Reset default capacity
+        if (CommunityVault.configManager != null) {
+            CommunityVault.configManager.setBoolean("maxVaultCapacityEnabled", true);
+            CommunityVault.configManager.setInt("maxVaultCapacity", 1000000);
+        }
     }
 
     @Test

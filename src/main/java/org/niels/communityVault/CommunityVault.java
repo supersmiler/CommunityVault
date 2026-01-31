@@ -25,7 +25,11 @@ public class CommunityVault extends JavaPlugin {
     public void onEnable() {
 
         int pluginId = 25689; // <-- Replace with the id of your plugin!
-        Metrics metrics = new Metrics(this, pluginId);
+        try {
+            Metrics metrics = new Metrics(this, pluginId);
+        } catch (Exception e) {
+            // Ignore metrics failure in tests or if relocation is missing
+        }
 
         categoryConfig = new CategoryConfig(this);
         configManager = new ConfigManager(this);
@@ -56,6 +60,9 @@ public class CommunityVault extends JavaPlugin {
         if (this.getCommand("cvaultstatus") != null) {
             this.getCommand("cvaultstatus").setExecutor(vaultCommand);
         }
+        if (this.getCommand("cvaultreload") != null) {
+            this.getCommand("cvaultreload").setExecutor(vaultCommand);
+        }
         if (this.getCommand("buywc") != null) {
             this.getCommand("buywc").setExecutor(chestCommand);
         }
@@ -72,8 +79,8 @@ public class CommunityVault extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        getServer().getScheduler().cancelTask(saveVault.getTaskId());
-        getServer().getScheduler().cancelTask(saveChests.getTaskId());
+        if (saveVault != null) getServer().getScheduler().cancelTask(saveVault.getTaskId());
+        if (saveChests != null) getServer().getScheduler().cancelTask(saveChests.getTaskId());
         VaultStorage.saveVaultToFile();
         ChestInteractListener.saveChestsToFile();
         BackupManager.backupVaultAndCategories(getLogger());

@@ -18,6 +18,8 @@ public class ConfigManager {
         // Add default values
         config.addDefault("diamondCostDepositChest", 5);
         config.addDefault("diamondCostWithdrawalChest", 5);
+        config.addDefault("maxVaultCapacityEnabled", true);
+        config.addDefault("maxVaultCapacity", 1000000); // Default high limit
 
         // Copy defaults to config file if they don't exist
         config.options().copyDefaults(true);
