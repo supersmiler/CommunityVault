@@ -44,6 +44,7 @@ class VaultStorageTest {
     void addItemToVaultRespectsCapacity() {
         VaultStorage.clearVault();
         // Set a small capacity for testing
+        CommunityVault.configManager.setBoolean("maxVaultCapacityEnabled", true);
         CommunityVault.configManager.setInt("maxVaultCapacity", 100);
         
         int added1 = VaultStorage.addItemToVault(new ItemStack(Material.ARROW, 60));
@@ -58,11 +59,23 @@ class VaultStorageTest {
         assertEquals(0, added3, "Should not add any more items when at capacity");
     }
 
+    @Test
+    void addItemToVaultIgnoresCapacityWhenDisabled() {
+        VaultStorage.clearVault();
+        CommunityVault.configManager.setBoolean("maxVaultCapacityEnabled", false);
+        CommunityVault.configManager.setInt("maxVaultCapacity", 10);
+
+        int added = VaultStorage.addItemToVault(new ItemStack(Material.ARROW, 64));
+        assertEquals(64, added, "Should add all items when capacity is disabled");
+        assertEquals(64, VaultStorage.getTotalItemCount(), "Total vault count should exceed the limit when disabled");
+    }
+
     @AfterEach
     void tearDown() {
         VaultStorage.clearVault();
         // Reset default capacity
         if (CommunityVault.configManager != null) {
+            CommunityVault.configManager.setBoolean("maxVaultCapacityEnabled", true);
             CommunityVault.configManager.setInt("maxVaultCapacity", 1000000);
         }
     }

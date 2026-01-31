@@ -25,3 +25,6 @@ commands:
   cvaultstatus:
     usage: /cvaultstatus
     description: Show CommunityVault health info (admin).
+  cvaultreload:
+    usage: /cvaultreload
+    description: Reload CommunityVault configuration (admin).

@@ -60,6 +60,9 @@ public class CommunityVault extends JavaPlugin {
         if (this.getCommand("cvaultstatus") != null) {
             this.getCommand("cvaultstatus").setExecutor(vaultCommand);
         }
+        if (this.getCommand("cvaultreload") != null) {
+            this.getCommand("cvaultreload").setExecutor(vaultCommand);
+        }
         if (this.getCommand("buywc") != null) {
             this.getCommand("buywc").setExecutor(chestCommand);
         }

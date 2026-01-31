@@ -185,6 +185,7 @@ public class VaultStorage {
             return 0;
         }
 
+        boolean limitEnabled = CommunityVault.configManager.getBoolean("maxVaultCapacityEnabled");
         int maxCapacity = CommunityVault.configManager.getInt("maxVaultCapacity");
         int currentTotal = getTotalItemCount();
 
@@ -192,7 +193,7 @@ public class VaultStorage {
         int amount = toAdd.getAmount();
 
         // Check if adding this would exceed capacity
-        if (currentTotal + amount > maxCapacity) {
+        if (limitEnabled && currentTotal + amount > maxCapacity) {
             amount = maxCapacity - currentTotal;
             if (amount <= 0) return 0;
         }
