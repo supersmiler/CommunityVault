@@ -21,9 +21,11 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.plugin.Plugin;
 import org.niels.communityVault.commands.VaultCommand;
 import org.niels.communityVault.CommunityVault;
@@ -37,15 +39,19 @@ import java.util.*;
 public class ChestInteractListener implements Listener {
 
     private final Plugin plugin;
+    private static Plugin pluginRef;
     private final VaultCommand vaultCommand; // Add VaultCommand here
     private static Set<Location> validWithdrawalChests = new HashSet<>(); // Tracks legit withdrawal chests
     private static Set<Location> validDepositChests = new HashSet<>(); // Tracks legit deposit chests
+    private static Map<Location, Material> withdrawalSelections = new HashMap<>();
+    private static Map<UUID, Location> withdrawalChestByPlayer = new HashMap<>();
     private static File chestFile;
     private static FileConfiguration chestConfig;
 
 
     public ChestInteractListener(Plugin plugin, VaultCommand vaultCommand) {
         this.plugin = plugin;
+        pluginRef = plugin;
         this.vaultCommand = vaultCommand; // Initialize VaultCommand
     }
 
@@ -69,6 +75,18 @@ public class ChestInteractListener implements Listener {
             wChestList.add(serializeLocation(loc));  // Convert Location to a Map
         }
         chestConfig.set("wchests", wChestList);
+
+        // Save withdrawal selections
+        List<Map<String, Object>> wSelectionList = new ArrayList<>();
+        for (Map.Entry<Location, Material> entry : withdrawalSelections.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+            Map<String, Object> locMap = serializeLocation(entry.getKey());
+            locMap.put("material", entry.getValue().name());
+            wSelectionList.add(locMap);
+        }
+        chestConfig.set("woutputs", wSelectionList);
 
         try {
             chestConfig.save(chestFile);
@@ -106,6 +124,7 @@ public class ChestInteractListener implements Listener {
 
         List<?> loadedDItems = chestConfig.getList("dchests");
         List<?> loadedWItems = chestConfig.getList("wchests");
+        List<?> loadedWOutputs = chestConfig.getList("woutputs");
 
         if (loadedDItems != null) {
             validDepositChests.clear();
@@ -124,6 +143,23 @@ public class ChestInteractListener implements Listener {
                 }
             }
         }
+
+        withdrawalSelections.clear();
+        if (loadedWOutputs != null) {
+            for (Object item : loadedWOutputs) {
+                if (item instanceof Map) {
+                    Map<String, Object> map = (Map<String, Object>) item;
+                    Location loc = deserializeLocation(map);
+                    Object matName = map.get("material");
+                    if (loc != null && matName instanceof String) {
+                        Material material = Material.getMaterial((String) matName);
+                        if (material != null) {
+                            withdrawalSelections.put(loc, material);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // Helper method to convert a Map to a Location
@@ -136,7 +172,7 @@ public class ChestInteractListener implements Listener {
     }
 
 
-    private boolean isRegisteredDepositChest(Location location) {
+    private static boolean isRegisteredDepositChest(Location location) {
         if (validDepositChests.contains(location)) return true;
         
         Block block = location.getBlock();
@@ -155,7 +191,7 @@ public class ChestInteractListener implements Listener {
         return false;
     }
 
-    private boolean isRegisteredWithdrawalChest(Location location) {
+    private static boolean isRegisteredWithdrawalChest(Location location) {
         if (validWithdrawalChests.contains(location)) return true;
 
         Block block = location.getBlock();
@@ -170,6 +206,26 @@ public class ChestInteractListener implements Listener {
                     return validWithdrawalChests.contains(leftLoc) || validWithdrawalChests.contains(rightLoc);
                 }
             }
+        }
+        return false;
+    }
+
+    private static boolean isRegisteredWithdrawalHolder(Inventory inventory) {
+        if (inventory == null) {
+            return false;
+        }
+        if (inventory.getHolder() instanceof Chest) {
+            Chest chest = (Chest) inventory.getHolder();
+            return isRegisteredWithdrawalChest(chest.getBlock().getLocation());
+        }
+        if (inventory instanceof DoubleChestInventory) {
+            DoubleChest doubleChest = (DoubleChest) inventory.getHolder();
+            if (doubleChest == null) {
+                return false;
+            }
+            Location leftLoc = ((Chest) doubleChest.getLeftSide()).getBlock().getLocation();
+            Location rightLoc = ((Chest) doubleChest.getRightSide()).getBlock().getLocation();
+            return validWithdrawalChests.contains(leftLoc) || validWithdrawalChests.contains(rightLoc);
         }
         return false;
     }
@@ -218,6 +274,169 @@ public class ChestInteractListener implements Listener {
             }
         }
         return null;
+    }
+
+    private static Location getWithdrawalSelectionKey(Location location) {
+        if (location == null) {
+            return null;
+        }
+        if (!isRegisteredWithdrawalChest(location)) {
+            return null;
+        }
+        Block block = location.getBlock();
+        if (block.getType() != Material.CHEST) {
+            return location;
+        }
+        Chest chest = (Chest) block.getState();
+        Inventory inventory = chest.getInventory();
+        if (inventory instanceof DoubleChestInventory) {
+            DoubleChest doubleChest = (DoubleChest) inventory.getHolder();
+            if (doubleChest != null) {
+                return ((Chest) doubleChest.getLeftSide()).getBlock().getLocation();
+            }
+        }
+        return location;
+    }
+
+    private static Location getWithdrawalSelectionKey(Inventory inventory) {
+        if (inventory == null) {
+            return null;
+        }
+        if (inventory instanceof DoubleChestInventory) {
+            DoubleChest doubleChest = (DoubleChest) inventory.getHolder();
+            if (doubleChest != null) {
+                return ((Chest) doubleChest.getLeftSide()).getBlock().getLocation();
+            }
+        }
+        if (inventory.getHolder() instanceof Chest) {
+            Chest chest = (Chest) inventory.getHolder();
+            return getWithdrawalSelectionKey(chest.getBlock().getLocation());
+        }
+        return null;
+    }
+
+    private static int getWithdrawalBufferSlot(Inventory inventory) {
+        return inventory instanceof DoubleChestInventory ? 31 : 13;
+    }
+
+    private static void cleanupWithdrawalInventory(Inventory inventory) {
+        int bufferSlot = getWithdrawalBufferSlot(inventory);
+        for (int i = 0; i < inventory.getSize(); i++) {
+            if (i == bufferSlot) {
+                continue;
+            }
+            ItemStack extra = inventory.getItem(i);
+            if (extra != null && extra.getType() != Material.AIR) {
+                VaultStorage.addItemToVault(extra);
+                inventory.setItem(i, null);
+            }
+        }
+    }
+
+    private static void returnWithdrawalBufferToVault(Inventory inventory) {
+        int bufferSlot = getWithdrawalBufferSlot(inventory);
+        ItemStack bufferItem = inventory.getItem(bufferSlot);
+        if (bufferItem != null && bufferItem.getType() != Material.AIR) {
+            VaultStorage.addItemToVault(bufferItem);
+            inventory.setItem(bufferSlot, null);
+        }
+        cleanupWithdrawalInventory(inventory);
+    }
+
+    private static void refillWithdrawalBuffer(Inventory inventory, Location key) {
+        if (inventory == null || key == null) {
+            return;
+        }
+        if (!CommunityVault.configManager.getBoolean("allowHopperWithdrawal")) {
+            return;
+        }
+        Material selected = withdrawalSelections.get(key);
+        cleanupWithdrawalInventory(inventory);
+        int bufferSlot = getWithdrawalBufferSlot(inventory);
+        ItemStack bufferItem = inventory.getItem(bufferSlot);
+        if (selected == null) {
+            if (bufferItem != null && bufferItem.getType() != Material.AIR) {
+                VaultStorage.addItemToVault(bufferItem);
+                inventory.setItem(bufferSlot, null);
+            }
+            return;
+        }
+        if (bufferItem != null && bufferItem.getType() != Material.AIR) {
+            if (bufferItem.getType() != selected) {
+                VaultStorage.addItemToVault(bufferItem);
+                inventory.setItem(bufferSlot, null);
+            } else {
+                return;
+            }
+        }
+        int amount = selected.getMaxStackSize();
+        ItemStack pulled = VaultStorage.takeFromVault(selected, amount);
+        if (pulled != null && pulled.getType() != Material.AIR) {
+            inventory.setItem(bufferSlot, pulled);
+        }
+    }
+
+    public static void updateWithdrawalSelection(Location location, Material material) {
+        Location key = getWithdrawalSelectionKey(location);
+        if (key == null) {
+            return;
+        }
+        Block block = key.getBlock();
+        if (block.getType() != Material.CHEST) {
+            return;
+        }
+        Chest chest = (Chest) block.getState();
+        Inventory inventory = chest.getInventory();
+        returnWithdrawalBufferToVault(inventory);
+        if (material == null) {
+            withdrawalSelections.remove(key);
+        } else {
+            withdrawalSelections.put(key, material);
+            refillWithdrawalBuffer(inventory, key);
+        }
+        saveChestsToFile();
+    }
+
+    public static Material getWithdrawalSelection(Location location) {
+        Location key = getWithdrawalSelectionKey(location);
+        if (key == null) {
+            return null;
+        }
+        return withdrawalSelections.get(key);
+    }
+
+    public static Location getWithdrawalKeyForPlayer(UUID playerId) {
+        return withdrawalChestByPlayer.get(playerId);
+    }
+
+    public static void clearWithdrawalKeyForPlayer(UUID playerId) {
+        withdrawalChestByPlayer.remove(playerId);
+    }
+
+    public static void notifyWithdrawalBuffers(Material material) {
+        if (material == null || pluginRef == null) {
+            return;
+        }
+        Bukkit.getScheduler().runTask(pluginRef, () -> {
+            if (!CommunityVault.configManager.getBoolean("allowHopperWithdrawal")) {
+                return;
+            }
+            for (Map.Entry<Location, Material> entry : withdrawalSelections.entrySet()) {
+                if (entry.getValue() != material) {
+                    continue;
+                }
+                Location key = entry.getKey();
+                if (key == null) {
+                    continue;
+                }
+                Block block = key.getBlock();
+                if (block.getType() != Material.CHEST) {
+                    continue;
+                }
+                Chest chest = (Chest) block.getState();
+                refillWithdrawalBuffer(chest.getInventory(), key);
+            }
+        });
     }
 
     @EventHandler
@@ -308,8 +527,20 @@ public class ChestInteractListener implements Listener {
 
         if (isRegisteredWithdrawalChest(loc) || isRegisteredDepositChest(loc)) {
             event.setDropItems(false); // Prevent the chest from dropping an item
+            if (isRegisteredWithdrawalChest(loc)) {
+                Location key = getWithdrawalSelectionKey(loc);
+                if (key != null) {
+                    Block keyBlock = key.getBlock();
+                    if (keyBlock.getType() == Material.CHEST) {
+                        Chest chest = (Chest) keyBlock.getState();
+                        returnWithdrawalBufferToVault(chest.getInventory());
+                    }
+                    withdrawalSelections.remove(key);
+                }
+            }
             validWithdrawalChests.remove(loc);
             validDepositChests.remove(loc);
+            saveChestsToFile();
             event.getPlayer().sendMessage("A special chest was destroyed.");
         }
     }
@@ -413,6 +644,11 @@ public class ChestInteractListener implements Listener {
                     //player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA + "Withdrawal Chest.");
                     // Handle withdrawal logic (open inventory, allow item withdrawal, etc.)
                     event.setCancelled(true);
+                    Location key = getWithdrawalSelectionKey(chestLocation);
+                    if (key != null) {
+                        event.getPlayer().setMetadata("withdrawalChestKey", new FixedMetadataValue(plugin, key));
+                        withdrawalChestByPlayer.put(event.getPlayer().getUniqueId(), key);
+                    }
                     vaultCommand.openMainVaultInventory(player, true);
                 } else if (isRegisteredDepositChest(chestLocation)) {
                     //player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA +  "Deposit Chest.");
@@ -440,6 +676,9 @@ public class ChestInteractListener implements Listener {
                 player.removeMetadata("categorySelectUncategorized", plugin);
             }
             player.removeMetadata("categoryRemoveTarget", plugin);
+            if (player.hasMetadata("withdrawSelect") && !player.hasMetadata("vaultTransition")) {
+                player.removeMetadata("withdrawSelect", plugin);
+            }
         }
 
         // Check if the inventory holder is a Chest
@@ -484,7 +723,10 @@ public class ChestInteractListener implements Listener {
                 Chest chest = (Chest) topInventory.getHolder();
                 Location chestLocation = chest.getBlock().getLocation();
                 if (isRegisteredWithdrawalChest(chestLocation)) {
-                    // Additional logic if needed for Withdrawal Chests
+                    Location key = getWithdrawalSelectionKey(chestLocation);
+                    if (key != null) {
+                        refillWithdrawalBuffer(topInventory, key);
+                    }
                 }
             } else if (topInventory instanceof DoubleChestInventory) {
                 DoubleChest doubleChest = (DoubleChest) topInventory.getHolder();
@@ -492,7 +734,10 @@ public class ChestInteractListener implements Listener {
                     Location leftLoc = ((Chest) doubleChest.getLeftSide()).getBlock().getLocation();
                     Location rightLoc = ((Chest) doubleChest.getRightSide()).getBlock().getLocation();
                     if (validWithdrawalChests.contains(leftLoc) || validWithdrawalChests.contains(rightLoc)) {
-                        // Additional logic if needed for Withdrawal Chests
+                        Location key = getWithdrawalSelectionKey(topInventory);
+                        if (key != null) {
+                            refillWithdrawalBuffer(topInventory, key);
+                        }
                     }
                 }
             }
@@ -503,6 +748,23 @@ public class ChestInteractListener implements Listener {
     public void onInventoryMoveItem(InventoryMoveItemEvent event) {
         Inventory destination = event.getDestination();
         if (destination == null) {
+            return;
+        }
+
+        boolean allowHopperWithdrawal = CommunityVault.configManager.getBoolean("allowHopperWithdrawal");
+        Inventory source = event.getSource();
+        if (allowHopperWithdrawal && source != null && isRegisteredWithdrawalHolder(source)) {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                Location key = getWithdrawalSelectionKey(source);
+                if (key != null) {
+                    refillWithdrawalBuffer(source, key);
+                }
+            });
+            return;
+        }
+
+        if (allowHopperWithdrawal && isRegisteredWithdrawalHolder(destination)) {
+            event.setCancelled(true);
             return;
         }
 
@@ -531,12 +793,18 @@ public class ChestInteractListener implements Listener {
         InventoryType sourceType = event.getSource().getType();
 
         if (sourceType == InventoryType.HOPPER) {
+            if (!CommunityVault.configManager.getBoolean("allowHopperDeposit")) {
+                return;
+            }
             // Hoppers: setting item to AIR lets the hopper decrement its slot normally
             // while nothing actually enters the chest
             VaultStorage.addItemToVault(item);
             event.setItem(new ItemStack(Material.AIR));
 
         } else if (sourceType == InventoryType.DROPPER) {
+            if (!CommunityVault.configManager.getBoolean("allowDropperDeposit")) {
+                return;
+            }
             // Droppers: cancelling prevents the dropper from removing the item,
             // so we cancel, add to vault, and manually remove from the dropper
             event.setCancelled(true);
@@ -548,6 +816,9 @@ public class ChestInteractListener implements Listener {
             }
 
         } else if (sourceType == InventoryType.CRAFTER) {
+            if (!CommunityVault.configManager.getBoolean("allowCrafterDeposit")) {
+                return;
+            }
             // Crafters: do not cancel (cancelling causes a drop), instead consume
             // the moved item by swapping it to AIR and store it in the vault.
             VaultStorage.addItemToVault(item);
@@ -557,5 +828,10 @@ public class ChestInteractListener implements Listener {
             // Unknown source type — cancel to be safe and avoid dupes
             event.setCancelled(true);
         }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        withdrawalChestByPlayer.remove(event.getPlayer().getUniqueId());
     }
 }

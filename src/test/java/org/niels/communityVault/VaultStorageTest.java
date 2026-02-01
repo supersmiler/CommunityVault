@@ -14,6 +14,7 @@ import org.niels.communityVault.utils.CategoryConfig;
 import org.niels.communityVault.ui.CategoryMenu;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.entity.Player;
+import org.bukkit.enchantments.Enchantment;
 import java.lang.reflect.Method;
 
 import java.util.ArrayList;
@@ -243,5 +244,33 @@ class VaultStorageTest {
         assertEquals(1, remaining.size(), "Only one stack should remain");
         ItemMeta meta = remaining.get(0).getItemMeta();
         assertTrue(meta == null || !meta.hasDisplayName(), "Remaining stack should be the unmodified one");
+    }
+
+    @Test
+    void takeFromVaultPreservesMetaAndDurability() {
+        VaultStorage.clearVault();
+        ItemStack shovel = new ItemStack(Material.DIAMOND_SHOVEL, 1);
+        ItemMeta meta = shovel.getItemMeta();
+        meta.addEnchant(Enchantment.EFFICIENCY, 3, true);
+        meta.setDisplayName("Worker Shovel");
+        shovel.setItemMeta(meta);
+        shovel.setDurability((short) 10);
+
+        VaultStorage.addItemToVault(shovel);
+
+        ItemStack taken = VaultStorage.takeFromVault(Material.DIAMOND_SHOVEL, 1);
+        assertTrue(taken != null && taken.getType() == Material.DIAMOND_SHOVEL);
+        ItemMeta takenMeta = taken.getItemMeta();
+        assertTrue(takenMeta != null && takenMeta.hasEnchant(Enchantment.EFFICIENCY));
+        assertEquals("Worker Shovel", takenMeta.getDisplayName());
+        assertEquals((short) 10, taken.getDurability());
+        assertEquals(0, VaultStorage.getItemCountFromVault(Material.DIAMOND_SHOVEL));
+    }
+
+    @Test
+    void takeFromVaultReturnsNullWhenEmpty() {
+        VaultStorage.clearVault();
+        ItemStack taken = VaultStorage.takeFromVault(Material.IRON_SWORD, 1);
+        assertTrue(taken == null);
     }
 }

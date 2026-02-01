@@ -1,6 +1,6 @@
 name: CommunityVault
 main: org.niels.communityVault.CommunityVault
-version: "1.3"
+version: "1.4"
 author: Niels
 api-version: '1.21'
 commands:

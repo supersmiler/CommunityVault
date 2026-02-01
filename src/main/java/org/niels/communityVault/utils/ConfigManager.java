@@ -20,6 +20,10 @@ public class ConfigManager {
         config.addDefault("diamondCostWithdrawalChest", 5);
         config.addDefault("maxVaultCapacityEnabled", true);
         config.addDefault("maxVaultCapacity", 1000000); // Default high limit
+        config.addDefault("allowHopperWithdrawal", true);
+        config.addDefault("allowHopperDeposit", true);
+        config.addDefault("allowDropperDeposit", true);
+        config.addDefault("allowCrafterDeposit", true);
 
         // Copy defaults to config file if they don't exist
         config.options().copyDefaults(true);

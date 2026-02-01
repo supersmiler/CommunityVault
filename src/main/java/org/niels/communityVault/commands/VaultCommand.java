@@ -2,6 +2,7 @@ package org.niels.communityVault.commands;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -12,8 +13,10 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.metadata.MetadataValue;
 import org.bukkit.plugin.Plugin;
 import org.niels.communityVault.CommunityVault;
+import org.niels.communityVault.listeners.ChestInteractListener;
 import org.niels.communityVault.utils.BackupManager;
 import org.niels.communityVault.utils.CategoryConfig;
 import org.niels.communityVault.utils.VaultStorage;
@@ -37,6 +40,26 @@ public class VaultCommand implements CommandExecutor {
     private final Plugin plugin;
     private final CategoryConfig categoryConfig;
     private final CategoryMenu categoryMenu;
+
+    private void markVaultTransition(Player player) {
+        player.setMetadata("vaultTransition", new FixedMetadataValue(plugin, true));
+        Bukkit.getScheduler().runTask(plugin, () -> player.removeMetadata("vaultTransition", plugin));
+    }
+
+    private void openVaultInventory(Player player, Inventory inventory) {
+        markVaultTransition(player);
+        player.openInventory(inventory);
+    }
+
+    private Location getWithdrawalKey(Player player) {
+        MetadataValue keyValue = player.getMetadata("withdrawalChestKey").isEmpty()
+                ? null : player.getMetadata("withdrawalChestKey").get(0);
+        Object rawKey = keyValue != null ? keyValue.value() : null;
+        if (rawKey instanceof Location) {
+            return (Location) rawKey;
+        }
+        return ChestInteractListener.getWithdrawalKeyForPlayer(player.getUniqueId());
+    }
 
     public VaultCommand(Plugin plugin, CategoryConfig categoryConfig, CategoryMenu categoryMenu) {
         this.plugin = plugin;
@@ -181,7 +204,7 @@ public class VaultCommand implements CommandExecutor {
         }
 
         // Open the inventory for the player
-        player.openInventory(searchInventory);
+        openVaultInventory(player, searchInventory);
     }
 
     // Handle category clicks (including pagination)
@@ -205,6 +228,28 @@ public class VaultCommand implements CommandExecutor {
             int currentPage = holder.getPage();
             if (!isValid) {
                 event.setCancelled(true); // Prevent item withdrawal
+            }
+            boolean isWithdrawSelecting = player.hasMetadata("withdrawSelect");
+            if (isWithdrawSelecting && clickedItem != null && clickedItem.getType() != Material.AIR) {
+                String displayName = (clickedItem.getItemMeta() != null && clickedItem.getItemMeta().hasDisplayName())
+                        ? clickedItem.getItemMeta().getDisplayName() : "";
+                if (!"Next Page".equals(displayName) && !"Previous Page".equals(displayName)
+                        && !"Back".equals(displayName)) {
+                    Location key = getWithdrawalKey(player);
+                    if (key != null) {
+                        ChestInteractListener.updateWithdrawalSelection(key, clickedItem.getType());
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA
+                                + "Withdrawal output set to " + clickedItem.getType().name() + ".");
+                        player.removeMetadata("withdrawSelect", plugin);
+                        boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
+                        openMainVaultInventory(player, canWithdraw);
+                    } else {
+                        player.sendMessage(ChatColor.RED + "No withdrawal chest selected.");
+                        player.removeMetadata("withdrawSelect", plugin);
+                    }
+                    event.setCancelled(true);
+                    return;
+                }
             }
             if (clickedItem != null && clickedItem.getType() == Material.BARRIER && clickedItem.getItemMeta() != null && "Back".equals(clickedItem.getItemMeta().getDisplayName())) {
                 // Back button
@@ -280,25 +325,50 @@ public class VaultCommand implements CommandExecutor {
 
 
     public void openMainVaultInventory(Player player, boolean isValid) {
+        openMainVaultInventoryPage(player, isValid, 1);
+    }
+
+    public void openMainVaultInventoryPage(Player player, boolean isValid, int page) {
         player.removeMetadata("categoryStacksParent", plugin);
         player.removeMetadata("categoryStacksParentPage", plugin);
+        if (!isValid) {
+            ChestInteractListener.clearWithdrawalKeyForPlayer(player.getUniqueId());
+        }
         boolean isSelecting = player.hasMetadata("categorySelect") && player.getMetadata("categorySelect").get(0).asBoolean();
-        Inventory mainVaultInventory;
-        if(isSelecting)
-        {
-            mainVaultInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.MAIN_SELECT, null, 1, null, 1), 54, "Select Category For Item");
-        }
-        else {
-            mainVaultInventory = Bukkit.createInventory(new VaultMenuHolder(VaultMenuHolder.Type.MAIN, null, 1, null, 1), 54, "Community Vault");
-        }
+        String title = isSelecting ? "Select Category For Item" : "Community Vault";
+        VaultMenuHolder.Type holderType = isSelecting ? VaultMenuHolder.Type.MAIN_SELECT : VaultMenuHolder.Type.MAIN;
 
-        // Add categories dynamically from VaultStorage
+        // Paginate categories (45 slots, last row for nav/buttons)
+        List<String> categoryKeys = new ArrayList<>(VaultStorage.getCategoryKeys());
+        categoryKeys.sort(Comparator.comparing(VaultStorage::getCategoryName));
+        int pageSize = 45;
+        int totalPages = (int) Math.ceil(categoryKeys.size() / (double) pageSize);
+        if (totalPages < 1) totalPages = 1;
+        if (page < 1) page = 1;
+        if (page > totalPages) page = totalPages;
+
+        Inventory mainVaultInventory = Bukkit.createInventory(
+                new VaultMenuHolder(holderType, null, 1, null, page),
+                54,
+                title
+        );
+
+        int start = (page - 1) * pageSize;
+        int end = Math.min(start + pageSize, categoryKeys.size());
         int index = 0;
-        for (String categoryKey : VaultStorage.getCategoryKeys()) {
+        for (int i = start; i < end; i++) {
+            String categoryKey = categoryKeys.get(i);
             String displayName = VaultStorage.getCategoryName(categoryKey);
-            Material iconMaterial = VaultStorage.getCategoryIcon(categoryKey); // Get the icon for the category
+            Material iconMaterial = VaultStorage.getCategoryIcon(categoryKey);
             mainVaultInventory.setItem(index, createCategoryItem(iconMaterial, displayName));
             index++;
+        }
+
+        if (totalPages > 1 && page > 1) {
+            mainVaultInventory.setItem(45, createNavigationItem(Material.ARROW, "Previous Page"));
+        }
+        if (totalPages > 1 && page < totalPages) {
+            mainVaultInventory.setItem(46, createNavigationItem(Material.ARROW, "Next Page"));
         }
 
 //        // Add categories to the vault inventory
@@ -336,12 +406,26 @@ public class VaultCommand implements CommandExecutor {
             }
             mainVaultInventory.setItem(49, createNavigationItem(Material.END_CRYSTAL, "All items"));
             mainVaultInventory.setItem(50, createNavigationItem(Material.TRAPPED_CHEST, "Uncategorized Items"));
+            if (isValid && CommunityVault.configManager.getBoolean("allowHopperWithdrawal")) {
+                ItemStack hopperItem = createNavigationItem(Material.HOPPER, "Set Withdrawal Output");
+                Location key = getWithdrawalKey(player);
+                if (key != null) {
+                    Material selected = ChestInteractListener.getWithdrawalSelection(key);
+                    ItemMeta meta = hopperItem.getItemMeta();
+                    if (meta != null) {
+                        String outputName = selected != null ? selected.name() : "None";
+                        meta.setLore(Collections.singletonList(ChatColor.YELLOW + "Output: " + outputName));
+                        hopperItem.setItemMeta(meta);
+                    }
+                }
+                mainVaultInventory.setItem(53, hopperItem);
+            }
         }
 
         // Save the player's vault access type (withdrawal allowed or not)
         player.setMetadata("canWithdraw", new FixedMetadataValue(plugin, isValid));
         // Open the inventory for the player
-        player.openInventory(mainVaultInventory);
+        openVaultInventory(player, mainVaultInventory);
     }
 
 
@@ -366,6 +450,24 @@ public class VaultCommand implements CommandExecutor {
         }
 
         event.setCancelled(true); // Prevent taking items
+        VaultMenuHolder holder = event.getView().getTopInventory().getHolder() instanceof VaultMenuHolder
+                ? (VaultMenuHolder) event.getView().getTopInventory().getHolder() : null;
+        int currentPage = holder != null ? holder.getPage() : 1;
+        if (clickedItem.getType() == Material.ARROW && clickedItem.getItemMeta() != null
+                && clickedItem.getItemMeta().hasDisplayName()
+                && (holder != null && (holder.getType() == VaultMenuHolder.Type.MAIN
+                || holder.getType() == VaultMenuHolder.Type.MAIN_SELECT))) {
+            String displayName = clickedItem.getItemMeta().getDisplayName();
+            boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
+            if ("Next Page".equals(displayName)) {
+                openMainVaultInventoryPage(player, canWithdraw, currentPage + 1);
+                return;
+            }
+            if ("Previous Page".equals(displayName)) {
+                openMainVaultInventoryPage(player, canWithdraw, currentPage - 1);
+                return;
+            }
+        }
         String categoryDisplayName = clickedItem.getItemMeta().getDisplayName();
         String categoryKey = getCategoryKeyByDisplayName(categoryDisplayName); // Helper to retrieve the key by name
             if(clickedItem.getType() == Material.RED_DYE)
@@ -403,6 +505,39 @@ public class VaultCommand implements CommandExecutor {
                 }
 
 
+            }
+            if (clickedItem.getType() == Material.HOPPER) {
+                String displayName = clickedItem.getItemMeta().getDisplayName();
+                if (displayName.equals("Set Withdrawal Output") && isValid
+                        && CommunityVault.configManager.getBoolean("allowHopperWithdrawal")) {
+                    player.setMetadata("withdrawSelect", new FixedMetadataValue(plugin, 1));
+                    openCategoryInventory(player, "All items", VaultStorage.getItemsByCategory(Material.values()));
+                    return;
+                }
+            }
+            if (clickedItem.getType() == Material.BOOK) {
+                String displayName = clickedItem.getItemMeta().getDisplayName();
+                if (displayName.equals("Search Vault")) {
+                    categoryMenu.startVaultSearch(player);
+                    return;
+                }
+            }
+            if (clickedItem.getType() == Material.BARRIER) {
+                String displayName = clickedItem.getItemMeta().getDisplayName();
+                if (displayName.equals("Clear Withdrawal Output") && isValid
+                        && CommunityVault.configManager.getBoolean("allowHopperWithdrawal")) {
+                    Location key = getWithdrawalKey(player);
+                    if (key != null) {
+                        ChestInteractListener.updateWithdrawalSelection(key, null);
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA
+                                + "Withdrawal output cleared.");
+                        boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
+                        openMainVaultInventory(player, canWithdraw);
+                    } else {
+                        player.sendMessage(ChatColor.RED + "No withdrawal chest selected.");
+                    }
+                    return;
+                }
             }
             if (clickedItem.getType() == Material.WRITABLE_BOOK) {
                 String displayName = clickedItem.getItemMeta().getDisplayName();
@@ -592,11 +727,16 @@ public class VaultCommand implements CommandExecutor {
         // Add back button
         categoryInventory.setItem(45, createNavigationItem(Material.BARRIER, "Back"));
         boolean isSelecting = player.hasMetadata("categorySelect") && player.getMetadata("categorySelect").get(0).asBoolean();
+        boolean isWithdrawSelecting = player.hasMetadata("withdrawSelect");
         if(isSelecting)
         {
             categoryInventory.setItem(52, createNavigationItem(Material.RED_DYE, "Stop Selecting"));
             String type =  player.getMetadata("categorySelectType").get(0).asString();
             categoryInventory.setItem(53, createNavigationItem(Material.getMaterial(type), "Selected Item"));
+        }
+        else if (isWithdrawSelecting) {
+            categoryInventory.setItem(52, createNavigationItem(Material.BARRIER, "Clear Withdrawal Output"));
+            categoryInventory.setItem(53, createNavigationItem(Material.BOOK, "Search Vault"));
         }
         else
         {
@@ -620,7 +760,7 @@ public class VaultCommand implements CommandExecutor {
         }
 
         // Open the inventory for the player
-        player.openInventory(categoryInventory);
+        openVaultInventory(player, categoryInventory);
     }
 
 
@@ -651,6 +791,57 @@ public class VaultCommand implements CommandExecutor {
                 ? (VaultMenuHolder) event.getView().getTopInventory().getHolder() : null;
         if (holder != null && holder.getType() == VaultMenuHolder.Type.CATEGORY) {
             event.setCancelled(true); // Prevent item withdrawal
+            boolean isWithdrawSelecting = player.hasMetadata("withdrawSelect");
+
+            if (isWithdrawSelecting && clickedItem != null && clickedItem.getType() != Material.AIR) {
+                String displayName = (clickedItem.getItemMeta() != null && clickedItem.getItemMeta().hasDisplayName())
+                        ? clickedItem.getItemMeta().getDisplayName() : "";
+                if (!"Next Page".equals(displayName) && !"Previous Page".equals(displayName)
+                        && !"Assign Category".equals(displayName) && !"Stop Selecting".equals(displayName)
+                        && !"Remove From Category".equals(displayName) && !"Add To Category".equals(displayName)
+                        && !"Back".equals(displayName) && !"Search Vault".equals(displayName)
+                        && !"Clear Withdrawal Output".equals(displayName)) {
+                    Location key = getWithdrawalKey(player);
+                    if (key != null) {
+                        ChestInteractListener.updateWithdrawalSelection(key, clickedItem.getType());
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA
+                                + "Withdrawal output set to " + clickedItem.getType().name() + ".");
+                        player.removeMetadata("withdrawSelect", plugin);
+                        boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
+                        openMainVaultInventory(player, canWithdraw);
+                    } else {
+                        player.sendMessage(ChatColor.RED + "No withdrawal chest selected.");
+                        player.removeMetadata("withdrawSelect", plugin);
+                    }
+                    return;
+                }
+            }
+
+            if (isWithdrawSelecting && clickedItem != null && clickedItem.getType() == Material.BOOK) {
+                String displayName = clickedItem.getItemMeta().getDisplayName();
+                if ("Search Vault".equals(displayName)) {
+                    categoryMenu.startVaultSearch(player);
+                    return;
+                }
+            }
+            if (isWithdrawSelecting && clickedItem != null && clickedItem.getType() == Material.BARRIER) {
+                String displayName = clickedItem.getItemMeta().getDisplayName();
+                if ("Clear Withdrawal Output".equals(displayName)) {
+                    Location key = getWithdrawalKey(player);
+                    if (key != null) {
+                        ChestInteractListener.updateWithdrawalSelection(key, null);
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA
+                                + "Withdrawal output cleared.");
+                        player.removeMetadata("withdrawSelect", plugin);
+                        boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
+                        openMainVaultInventory(player, canWithdraw);
+                    } else {
+                        player.sendMessage(ChatColor.RED + "No withdrawal chest selected.");
+                        player.removeMetadata("withdrawSelect", plugin);
+                    }
+                    return;
+                }
+            }
 
             if (clickedItem != null && (clickedItem.getType() == Material.ARROW || clickedItem.getType() == Material.EMERALD || clickedItem.getType() == Material.RED_DYE)) {
                 String displayName = (clickedItem.getItemMeta() != null && clickedItem.getItemMeta().hasDisplayName()) ? clickedItem.getItemMeta().getDisplayName() : "";
@@ -705,6 +896,7 @@ public class VaultCommand implements CommandExecutor {
                 // Back button
                 player.removeMetadata("categorySelectUncategorized", plugin);
                 player.removeMetadata("categoryRemoveTarget", plugin);
+                player.removeMetadata("withdrawSelect", plugin);
                 boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
                 Bukkit.getScheduler().runTask(plugin, () -> openMainVaultInventory(player, canWithdraw));
             }
@@ -854,7 +1046,7 @@ public class VaultCommand implements CommandExecutor {
         }
 
         // Open the inventory for the player
-        player.openInventory(materialInventory);
+        openVaultInventory(player, materialInventory);
     }
 
 
@@ -871,6 +1063,7 @@ public class VaultCommand implements CommandExecutor {
             if (!isValid) {
                 event.setCancelled(true); // Prevent item withdrawal
             }
+            boolean isWithdrawSelecting = player.hasMetadata("withdrawSelect");
             if (clickedItem != null && clickedItem.getType() == Material.BARRIER && clickedItem.getItemMeta() != null && "Back".equals(clickedItem.getItemMeta().getDisplayName())) {
                 // Back button
                 event.setCancelled(false);
@@ -886,6 +1079,28 @@ public class VaultCommand implements CommandExecutor {
                 boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
                 openMainVaultInventory(player, canWithdraw);
                 return;
+            }
+
+            if (isWithdrawSelecting && clickedItem != null && clickedItem.getType() != Material.AIR) {
+                String displayName = (clickedItem.getItemMeta() != null && clickedItem.getItemMeta().hasDisplayName())
+                        ? clickedItem.getItemMeta().getDisplayName() : "";
+                if (!"Next Page".equals(displayName) && !"Previous Page".equals(displayName)
+                        && !"Back".equals(displayName)) {
+                    Location key = getWithdrawalKey(player);
+                    if (key != null) {
+                        ChestInteractListener.updateWithdrawalSelection(key, clickedItem.getType());
+                        player.sendMessage(ChatColor.GOLD + "[CommunityVault] " + ChatColor.AQUA
+                                + "Withdrawal output set to " + clickedItem.getType().name() + ".");
+                        player.removeMetadata("withdrawSelect", plugin);
+                        boolean canWithdraw = player.hasMetadata("canWithdraw") && player.getMetadata("canWithdraw").get(0).asBoolean();
+                        openMainVaultInventory(player, canWithdraw);
+                    } else {
+                        player.sendMessage(ChatColor.RED + "No withdrawal chest selected.");
+                        player.removeMetadata("withdrawSelect", plugin);
+                    }
+                    event.setCancelled(true);
+                    return;
+                }
             }
 
 

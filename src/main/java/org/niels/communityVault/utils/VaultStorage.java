@@ -7,6 +7,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Item;
 import org.bukkit.inventory.ItemStack;
 import org.niels.communityVault.CommunityVault;
+import org.niels.communityVault.listeners.ChestInteractListener;
 
 import java.io.File;
 import java.io.IOException;
@@ -279,6 +280,9 @@ public class VaultStorage {
         }
 
         vaultStorage.sort(Comparator.comparing(itemStack -> itemStack.getType().name()));
+        if (actualAdded > 0) {
+            ChestInteractListener.notifyWithdrawalBuffers(toAdd.getType());
+        }
         return actualAdded;
     }
 
@@ -531,6 +535,29 @@ public class VaultStorage {
             }
         }
         return totalAmount;
+    }
+
+    // Take up to amount from the first matching stack, preserving meta/durability.
+    public static ItemStack takeFromVault(Material material, int amount) {
+        if (material == null || amount <= 0) {
+            return null;
+        }
+        for (int i = 0; i < vaultStorage.size(); i++) {
+            ItemStack item = vaultStorage.get(i);
+            if (item == null || item.getType() != material) {
+                continue;
+            }
+            int takeAmount = Math.min(item.getAmount(), amount);
+            ItemStack taken = item.clone();
+            taken.setAmount(takeAmount);
+            if (item.getAmount() > takeAmount) {
+                item.setAmount(item.getAmount() - takeAmount);
+            } else {
+                vaultStorage.remove(i);
+            }
+            return taken;
+        }
+        return null;
     }
 
     public static int getTotalItemCount() {

@@ -68,6 +68,7 @@ public class CategoryMenu implements Listener {
         }
 
         List<String> keys = new ArrayList<>(VaultStorage.getCategoryKeys());
+        keys.sort(Comparator.comparing(VaultStorage::getCategoryName));
         int pageSize = 45;
         int totalPages = Math.max(1, (int) Math.ceil(keys.size() / (double) pageSize));
         if (page < 1) page = 1;
@@ -353,6 +354,17 @@ public class CategoryMenu implements Listener {
         player.sendMessage(ChatColor.YELLOW + "Type a search term to add items.");
     }
 
+    public void startVaultSearch(Player player) {
+        if (player == null) {
+            return;
+        }
+        player.setMetadata("vaultTransition", new org.bukkit.metadata.FixedMetadataValue(plugin, true));
+        Bukkit.getScheduler().runTask(plugin, () -> player.removeMetadata("vaultTransition", plugin));
+        pendingInputs.put(player.getUniqueId(), new PendingInput(InputType.VAULT_SEARCH, null));
+        player.closeInventory();
+        player.sendMessage(ChatColor.YELLOW + "Type a search term for the vault.");
+    }
+
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player)) {
@@ -442,6 +454,12 @@ public class CategoryMenu implements Listener {
                 addSearch.put(uuid, message);
                 if (pending.key != null) {
                     openAddItems(player, pending.key, 1);
+                }
+                return;
+            }
+            if (pending.type == InputType.VAULT_SEARCH) {
+                if (vaultCommand != null) {
+                    vaultCommand.searchVault(player, new String[] { message });
                 }
             }
         });
@@ -810,7 +828,8 @@ public class CategoryMenu implements Listener {
         RENAME_CATEGORY,
         ICON_SEARCH,
         ITEM_SEARCH,
-        ADD_SEARCH
+        ADD_SEARCH,
+        VAULT_SEARCH
     }
 
     private static final class PendingInput {

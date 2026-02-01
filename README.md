@@ -15,7 +15,8 @@ and withdrawal chests, organized categories, and search to keep a clean, immersi
 - 🗂️ Manual Compaction: `/cvaultcompact` stacks items; unstackables (e.g., shulkers) are left safe.
 - 🩺 Status Command: `/cvaultstatus` shows stack/item counts, backups, saves, and capacity status.
 - 🔁 Reload Command: `/cvaultreload` reloads config and categories without a restart.
-- 🔄 Hopper Support: hoppers can deposit into deposit chests (capacity-respecting).
+- 🔄 Automation: hoppers/droppers/crafters can deposit into deposit chests (capacity-respecting).
+- 🪣 Hopper Withdrawal Output: set a single output per withdrawal chest and let hoppers pull it.
 - ⛔ Capacity Limits: optional max-cap with clear messaging when full.
 - 💾 Backups: automatic backups on startup/shutdown with 14-day retention.
 - ✅ Safety: withdrawals check inventory space and roll back if full.
@@ -25,6 +26,7 @@ and withdrawal chests, organized categories, and search to keep a clean, immersi
 1. Buy a Deposit Chest (`/buydc`) or Withdrawal Chest (`/buywc`).
 2. Deposit chest: drop items in; they auto-sort into the global vault.
 3. Withdrawal chest: open and pull items or search with `/sv <term>` while looking at it.
+4. Optional: set a hopper output from the withdrawal chest UI (single output per chest).
 4. View the vault anywhere with `/cvault` (categories, counts, pagination).
 
 ### 🧩 Chest Rules
@@ -32,6 +34,7 @@ and withdrawal chests, organized categories, and search to keep a clean, immersi
 - Deposit chests only pair with deposit chests.
 - Withdrawal chests only pair with withdrawal chests.
 - A normal chest cannot attach to a special chest (deposit/withdrawal).
+- Withdrawal hoppers pull the selected output item (buffered in the center slot).
 
 ### 🧩 Category Management
 
@@ -45,6 +48,10 @@ and withdrawal chests, organized categories, and search to keep a clean, immersi
 - `diamondCostDepositChest` / `diamondCostWithdrawalChest`
 - `maxVaultCapacityEnabled`
 - `maxVaultCapacity`
+- `allowHopperWithdrawal`
+- `allowHopperDeposit`
+- `allowDropperDeposit`
+- `allowCrafterDeposit`
 
 ### 🔐 Permissions
 
