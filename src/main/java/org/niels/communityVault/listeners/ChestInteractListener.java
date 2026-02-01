@@ -501,43 +501,61 @@ public class ChestInteractListener implements Listener {
 
     @EventHandler
     public void onInventoryMoveItem(InventoryMoveItemEvent event) {
-        // Check if the source inventory is a hopper
-        if (event.getSource().getType() != InventoryType.HOPPER) {
-            return;
-        }
-
         Inventory destination = event.getDestination();
         if (destination == null) {
             return;
         }
 
-        if (destination.getHolder() instanceof Chest || destination instanceof DoubleChestInventory) {
-            if (!isRegisteredDepositHolder(destination)) {
+        if (!(destination.getHolder() instanceof Chest || destination instanceof DoubleChestInventory)) {
+            return;
+        }
+        if (!isRegisteredDepositHolder(destination)) {
+            return;
+        }
+
+        ItemStack item = event.getItem();
+        if (item == null || item.getType() == Material.AIR) {
+            return;
+        }
+
+        // Check vault capacity — cancel the transfer so the item stays in the source block
+        boolean limitEnabled = CommunityVault.configManager.getBoolean("maxVaultCapacityEnabled");
+        if (limitEnabled) {
+            int maxCapacity = CommunityVault.configManager.getInt("maxVaultCapacity");
+            if (VaultStorage.getTotalItemCount() + item.getAmount() > maxCapacity) {
+                event.setCancelled(true);
                 return;
             }
+        }
 
-            ItemStack item = event.getItem();
-            if (item != null && item.getType() != Material.AIR) {
-                boolean limitEnabled = CommunityVault.configManager.getBoolean("maxVaultCapacityEnabled");
-                if (limitEnabled) {
-                    int maxCapacity = CommunityVault.configManager.getInt("maxVaultCapacity");
-                    int currentTotal = VaultStorage.getTotalItemCount();
-                    if (currentTotal + item.getAmount() > maxCapacity) {
-                        event.setCancelled(true);
-                        return;
-                    }
-                }
+        InventoryType sourceType = event.getSource().getType();
 
-                int added = VaultStorage.addItemToVault(item);
+        if (sourceType == InventoryType.HOPPER) {
+            // Hoppers: setting item to AIR lets the hopper decrement its slot normally
+            // while nothing actually enters the chest
+            VaultStorage.addItemToVault(item);
+            event.setItem(new ItemStack(Material.AIR));
 
-                if (added >= item.getAmount()) {
-                    // Clear the item from the event so it doesn't move to the chest
-                    event.setItem(new ItemStack(Material.AIR));
-                } else {
-                    // Nothing added, cancel move to avoid item entering the chest
-                    event.setCancelled(true);
-                }
+        } else if (sourceType == InventoryType.DROPPER) {
+            // Droppers: cancelling prevents the dropper from removing the item,
+            // so we cancel, add to vault, and manually remove from the dropper
+            event.setCancelled(true);
+            int added = VaultStorage.addItemToVault(item);
+            if (added > 0) {
+                ItemStack toRemove = item.clone();
+                toRemove.setAmount(added);
+                event.getSource().removeItem(toRemove);
             }
+
+        } else if (sourceType == InventoryType.CRAFTER) {
+            // Crafters: do not cancel (cancelling causes a drop), instead consume
+            // the moved item by swapping it to AIR and store it in the vault.
+            VaultStorage.addItemToVault(item);
+            event.setItem(new ItemStack(Material.AIR));
+
+        } else {
+            // Unknown source type — cancel to be safe and avoid dupes
+            event.setCancelled(true);
         }
     }
 }
